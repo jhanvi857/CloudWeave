@@ -1,0 +1,6 @@
+# Runtime data directories
+data*/
+*.wal
+*.tmp
+*.exe
+node
