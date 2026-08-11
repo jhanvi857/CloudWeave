@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+
+	"cloudWeave/internal/metrics"
 )
 
 func NewRouter(apiHandler *APIHandler, transportHandler http.Handler) http.Handler {
@@ -20,6 +22,9 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler) http.Handl
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
+
+	// Prometheus metrics endpoint
+	mux.HandleFunc("/metrics", metrics.Handler())
 
 	return mux
 }

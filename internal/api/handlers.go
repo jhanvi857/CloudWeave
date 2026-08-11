@@ -9,6 +9,7 @@ import (
 
 	"cloudWeave/internal/chunk"
 	"cloudWeave/internal/metadata"
+	"cloudWeave/internal/metrics"
 )
 
 const DefaultChunkSize = 1024 * 1024 // 1 MB default chunk size
@@ -117,6 +118,8 @@ func (a *APIHandler) handlePutFile(w http.ResponseWriter, r *http.Request, fileI
 		return
 	}
 
+	metrics.IncFileUploads()
+
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, "File %s uploaded successfully (%d bytes, %d chunks)\n", fileID, len(data), len(chunks))
 }
@@ -127,6 +130,8 @@ func (a *APIHandler) handleGetFile(w http.ResponseWriter, r *http.Request, fileI
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
+
+	metrics.IncFileDownloads()
 
 	var fetchedChunks []chunk.Chunk
 	for idx, chunkID := range manifest.ChunkIDs {

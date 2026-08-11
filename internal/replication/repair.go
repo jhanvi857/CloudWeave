@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cloudWeave/internal/metadata"
+	"cloudWeave/internal/metrics"
 	"cloudWeave/internal/ring"
 	"cloudWeave/internal/storage"
 	"cloudWeave/internal/transport"
@@ -113,6 +114,7 @@ func (rm *RepairManager) RepairDeadNode(deadNodeAddr string) (int, error) {
 		}
 	}
 
+	metrics.AddRepairedChunks(repairedCount)
 	return repairedCount, nil
 }
 
