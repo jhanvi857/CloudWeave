@@ -18,10 +18,10 @@ flowchart TD
     Client["Client (HTTP / CLI)"] -->|PUT /files/:id, GET /files/:id| API["API Router & Handler"]
     API -->|Split / Reassemble| Chunker["Chunker (SHA-256)"]
     API -->|Causal Versioning| VC["Vector Clock Engine"]
-    API -->|Record / Lookup Manifests| Meta["Metadata Store + WAL"]
     API -->|Prometheus Metrics| Metrics["Metrics Exporter (/metrics)"]
-    API -->|Replicated Log| Raft["Raft Consensus Engine"]
-    Raft -->|Local Persistent Log| WAL["Write-Ahead Log (metadata.wal)"]
+    API -->|Propose Transaction| Raft["Raft Consensus Engine"]
+    Raft -->|Local Log Write| WAL["Write-Ahead Log (metadata.wal)"]
+    WAL -->|Apply Committed State| Meta["Metadata Store"]
     Chunker --> Coordinator["Quorum Coordinator (N, W, R)"]
     Coordinator --> Ring["Consistent Hash Ring (Virtual Nodes)"]
     Coordinator --> Node1["Storage Node 1 (DiskStore / Erasure Shards)"]
@@ -63,13 +63,13 @@ flowchart TD
    - **R** (Read Quorum): Minimum number of successful node reads required for a read operation to succeed.
 
 4. **Storage Architecture: Dual-Mode Engine**
-   CloudWeave operates in **Full Replication Mode** ($N=3, W=2, R=2$) by default for general operations. **Reed-Solomon Erasure Coding Mode** ($K=4, M=2$) is available as a selectable alternative storage engine in `internal/erasure`, dividing data blocks into $K$ data shards and $M$ parity shards to reduce storage overhead while tolerating up to $M$ simultaneous shard losses.
+   CloudWeave supports two selectable storage engine strategies via `-storage-mode`: **Full Replication Mode** (`replication`, default) and **Reed-Solomon Erasure Coding Mode** (`erasure`). In Full Replication mode ($N=3, W=2, R=2$), chunks are copied $N$ times across the ring. In Erasure Coding mode (`-storage-mode=erasure -k=4 -m=2`), data blocks are split into $K=4$ data shards and $M=2$ parity shards before distribution across the Hash Ring.
 
 5. **Cluster Failure Detection (`internal/cluster`)**
    Monitors storage node health via periodic HTTP `/health` heartbeats. When a node fails consecutive health checks beyond the timeout window, it is removed from the consistent hash ring and marked dead.
 
-6. **Self-Healing Replication Repair (`internal/replication`)**
-   When a node dies, a background worker pool scans metadata manifests, identifies under-replicated chunks owned by the dead node, fetches surviving replicas, and writes new copies to active target nodes on the hash ring.
+6. **Self-Healing Repair Strategy (`internal/replication`)**
+   CloudWeave employs proactive background repair for full replication mode and a hybrid proactive/reactive model for erasure coding mode. For replication ($N=3$), the background worker pool immediately re-replicates missing chunks upon node failure detection. For erasure coding ($K=4, M=2$), missing shards are reconstructed reactively at read time (`GET /files/{id}`) whenever $< K+M$ shards are present, while background workers proactively repair under-replicated shards when missing shard counts exceed 1 to prevent compound failures.
 
 7. **Write-Ahead Logging (`internal/metadata`)**
    The Write-Ahead Log (`metadata.wal`) serves as Raft's local persistent log store. Every Raft proposed transaction (`ProposeManifest`, `ProposeLocationUpdate`) is logged synchronously to disk via `metadata.wal` before being applied to the in-memory metadata store. On process restart, `metadata.wal` replays committed log entries to reconstruct memory state with zero data loss.
@@ -90,7 +90,7 @@ flowchart TD
 
 ## CLI Configuration Flags
 
-The node executable (`cmd/node/main.go`) supports runtime flags for networking, storage paths, and quorum parameters:
+The node executable (`cmd/node/main.go`) supports runtime flags for networking, storage paths, storage strategy, and quorum parameters:
 
 | Flag | Default | Description |
 | :--- | :--- | :--- |
@@ -98,6 +98,9 @@ The node executable (`cmd/node/main.go`) supports runtime flags for networking, 
 | `-data` | `./data` | Directory path for local chunk storage |
 | `-peers` | `""` | Comma-separated list of peer node HTTP addresses |
 | `-wal` | `<data>/metadata.wal` | Path to Write-Ahead Log file for metadata durability |
+| `-storage-mode` | `replication` | Storage engine strategy (`replication` or `erasure`) |
+| `-k` | `4` | Number of data shards K for erasure coding mode |
+| `-m` | `2` | Number of parity shards M for erasure coding mode |
 | `-n` | `3` | Replication factor N (number of replicas per chunk) |
 | `-w` | `2` | Write quorum W (minimum ACKs required for write success) |
 | `-r` | `2` | Read quorum R (minimum successful reads required for GET) |
@@ -193,6 +196,7 @@ curl.exe http://localhost:8080/metrics
    `[Raft] Leader heartbeat timeout. Starting election for Term 2...`
    `[Raft] Node http://localhost:8081 elected new Leader (Term 2) in 142ms`
 4. Submit `PUT /files/demo-doc2` to Node 2 (new Leader). Operation succeeds with consensus state intact.
+5. Re-fetch the original `demo-doc` file (`curl.exe http://localhost:8081/files/demo-doc`) from the new Leader node. Operation succeeds with 100% byte-identical content, proving that metadata state survived the leader failover without data loss.
 
 ---
 
@@ -215,3 +219,6 @@ Selecting $K=4, M=2$ strikes an optimal balance for medium-sized clusters (5-10 
 
 ### Why Vector Clocks over Last-Write-Wins (LWW) Timestamps?
 Wall-clock timestamps relying on NTP are vulnerable to clock skew across physical machines. In concurrent multi-master writes, Machine A (with a clock skewed +500ms into the future) could overwrite Machine B's write even if Machine B wrote later in real time. Vector clocks (`map[nodeID]counter`) track true causal relationships (`Before`, `After`, `Concurrent`), explicitly catching concurrent write conflicts that LWW would silently overwrite.
+
+### Why Proactive Background Repair vs. Reactive Read-Time Reconstruction for Erasure Shards?
+Proactive background repair immediately restores lost shards upon node failure, protecting against compound failures (e.g. losing $M+1$ nodes before a read occurs). However, it consumes background disk I/O and network bandwidth. Reactive read-time reconstruction defers work until access, saving cluster bandwidth for cold data at the risk of data loss if additional nodes fail before the next access. CloudWeave uses proactive repair for full replication and a hybrid proactive/reactive model for erasure coding.
