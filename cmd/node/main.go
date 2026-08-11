@@ -29,6 +29,9 @@ func main() {
 	nFlag := flag.Int("n", 3, "replication factor N")
 	wFlag := flag.Int("w", 2, "write quorum W")
 	rFlag := flag.Int("r", 2, "read quorum R")
+	storageMode := flag.String("storage-mode", "replication", "storage engine strategy: 'replication' or 'erasure'")
+	kFlag := flag.Int("k", 4, "data shards K for erasure coding mode")
+	mFlag := flag.Int("m", 2, "parity shards M for erasure coding mode")
 	flag.Parse()
 
 	if *dataDir == "" {
@@ -36,7 +39,7 @@ func main() {
 	}
 
 	localAddr := fmt.Sprintf("http://localhost:%s", *port)
-	log.Printf("[Main] Starting CloudWeave node on %s", localAddr)
+	log.Printf("[Main] Starting CloudWeave node on %s (Engine: %s, K=%d, M=%d)", localAddr, *storageMode, *kFlag, *mFlag)
 
 	// 1. Storage
 	diskStore, err := storage.NewDiskStore(*dataDir)
