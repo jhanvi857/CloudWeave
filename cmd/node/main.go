@@ -12,6 +12,7 @@ import (
 
 	"cloudWeave/internal/api"
 	"cloudWeave/internal/cluster"
+	"cloudWeave/internal/consensus"
 	"cloudWeave/internal/coordinator"
 	"cloudWeave/internal/metadata"
 	"cloudWeave/internal/replication"
@@ -61,6 +62,16 @@ func main() {
 	}
 	defer wal.Close()
 	metaStore.SetWAL(wal)
+
+	// Raft Consensus Engine (Replicated Log State Machine)
+	var peerAddrs []string
+	if *peersFlag != "" {
+		peerAddrs = strings.Split(*peersFlag, ",")
+	}
+	raftEngine := consensus.NewRaftNode(localAddr, peerAddrs, metaStore)
+	raftEngine.Start()
+	defer raftEngine.Stop()
+	raftEngine.ForceLeader()
 
 	// 3. Ring & Cluster Membership
 	hashRing := ring.New()
