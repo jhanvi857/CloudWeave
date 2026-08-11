@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  node1:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: cloudweave-node1
+    command: ["-port=8080", "-data=/data", "-peers=http://node2:8080,http://node3:8080,http://node4:8080,http://node5:8080"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - node1_data:/data
+
+  node2:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: cloudweave-node2
+    command: ["-port=8080", "-data=/data", "-peers=http://node1:8080,http://node3:8080,http://node4:8080,http://node5:8080"]
+    ports:
+      - "8081:8080"
+    volumes:
+      - node2_data:/data
+
+  node3:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: cloudweave-node3
+    command: ["-port=8080", "-data=/data", "-peers=http://node1:8080,http://node2:8080,http://node4:8080,http://node5:8080"]
+    ports:
+      - "8082:8080"
+    volumes:
+      - node3_data:/data
+
+  node4:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: cloudweave-node4
+    command: ["-port=8080", "-data=/data", "-peers=http://node1:8080,http://node2:8080,http://node3:8080,http://node5:8080"]
+    ports:
+      - "8083:8080"
+    volumes:
+      - node4_data:/data
+
+  node5:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: cloudweave-node5
+    command: ["-port=8080", "-data=/data", "-peers=http://node1:8080,http://node2:8080,http://node3:8080,http://node4:8080"]
+    ports:
+      - "8084:8080"
+    volumes:
+      - node5_data:/data
+
+volumes:
+  node1_data:
+  node2_data:
+  node3_data:
+  node4_data:
+  node5_data:
