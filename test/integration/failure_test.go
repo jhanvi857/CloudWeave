@@ -60,7 +60,7 @@ func TestEndToEnd_NodeFailureAndSelfHealing(t *testing.T) {
 
 	coord := coordinator.NewCoordinator(hashRing, metaStore, "", nil, 3, 2, 2)
 	apiHandler := api.NewAPIHandler(metaStore, coord, 32)
-	router := api.NewRouter(apiHandler, nil)
+	router := api.NewRouter(apiHandler, nil, nil)
 
 	coordinatorServer := httptest.NewServer(router)
 	defer coordinatorServer.Close()

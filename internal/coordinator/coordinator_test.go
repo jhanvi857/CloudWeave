@@ -49,7 +49,7 @@ func TestCoordinator_QuorumReadWrite(t *testing.T) {
 	coord := NewCoordinator(r, metaStore, "", nil, 3, 2, 2)
 
 	apiHandler := api.NewAPIHandler(metaStore, coord, 16)
-	router := api.NewRouter(apiHandler, nil)
+	router := api.NewRouter(apiHandler, nil, nil)
 
 	coordinatorServer := httptest.NewServer(router)
 	defer coordinatorServer.Close()

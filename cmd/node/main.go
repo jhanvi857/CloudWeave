@@ -14,6 +14,7 @@ import (
 	"cloudWeave/internal/cluster"
 	"cloudWeave/internal/consensus"
 	"cloudWeave/internal/coordinator"
+	"cloudWeave/internal/gc"
 	"cloudWeave/internal/metadata"
 	"cloudWeave/internal/replication"
 	"cloudWeave/internal/ring"
@@ -106,14 +107,15 @@ func main() {
 	heartbeat.Start()
 	defer heartbeat.Stop()
 
-	// 4. Quorum Coordinator
+	// 4. Quorum Coordinator & Garbage Collector
 	coord := coordinator.NewCoordinator(hashRing, metaStore, localAddr, diskStore, *nFlag, *wFlag, *rFlag)
+	gcEngine := gc.NewGarbageCollector(metaStore, diskStore)
 
 	// 5. API Handler & Transport Server
 	apiHandler := api.NewAPIHandler(metaStore, coord, api.DefaultChunkSize)
 	transportServer := transport.NewServer(diskStore)
 
-	router := api.NewRouter(apiHandler, transportServer.Handler())
+	router := api.NewRouter(apiHandler, transportServer.Handler(), gcEngine)
 
 	serverAddr := ":" + *port
 	log.Printf("[Main] Node listening on %s, storing data in %s", serverAddr, *dataDir)
@@ -122,3 +124,4 @@ func main() {
 		os.Exit(1)
 	}
 }
+
