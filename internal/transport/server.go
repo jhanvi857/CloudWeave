@@ -60,6 +60,14 @@ func (s *Server) handleChunk(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Write(data)
 
+	case http.MethodDelete:
+		if err := s.store.Delete(chunkID); err != nil {
+			log.Printf("delete %s failed: %v", chunkID, err)
+			http.Error(w, "storage delete error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
