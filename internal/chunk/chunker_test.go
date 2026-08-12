@@ -51,3 +51,34 @@ func TestSplit_LastChunkShorter(t *testing.T) {
 		t.Fatalf("expected last chunk to have 2 bytes, got %d", len(chunks[2].Data))
 	}
 }
+
+func TestSplitStream_RoundTrip(t *testing.T) {
+	original := make([]byte, 5*1024*1024+123)
+	rand.New(rand.NewSource(99)).Read(original)
+
+	var collected []Chunk
+	totalBytes, chunkIDs, err := SplitStream(bytes.NewReader(original), 1*1024*1024, func(c Chunk) error {
+		collected = append(collected, c)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("SplitStream failed: %v", err)
+	}
+
+	if totalBytes != int64(len(original)) {
+		t.Fatalf("expected %d bytes, got %d", len(original), totalBytes)
+	}
+	if len(chunkIDs) != len(collected) {
+		t.Fatalf("expected %d chunkIDs, got %d", len(collected), len(chunkIDs))
+	}
+
+	reassembled, err := Reassemble(collected)
+	if err != nil {
+		t.Fatalf("Reassemble stream chunks failed: %v", err)
+	}
+
+	if !bytes.Equal(original, reassembled) {
+		t.Fatal("reassembled stream data does not match original")
+	}
+}
+
