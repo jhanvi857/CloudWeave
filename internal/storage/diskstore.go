@@ -42,6 +42,35 @@ func (s *DiskStore) Exists(chunkID string) bool {
 	return err == nil
 }
 
+func (s *DiskStore) Delete(chunkID string) error {
+	path := s.pathFor(chunkID)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("deleting chunk %s: %w", chunkID, err)
+	}
+	return nil
+}
+
+func (s *DiskStore) ListChunks() ([]string, error) {
+	entries, err := os.ReadDir(s.baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("listing storage dir %s: %w", s.baseDir, err)
+	}
+
+	var chunkIDs []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if filepath.Ext(name) == ".wal" || filepath.Ext(name) == ".tmp" || (len(name) > 0 && name[0] == '.') {
+			continue
+		}
+		chunkIDs = append(chunkIDs, name)
+	}
+	return chunkIDs, nil
+}
+
 func (s *DiskStore) pathFor(chunkID string) string {
 	return filepath.Join(s.baseDir, chunkID)
 }
+

@@ -58,3 +58,23 @@ func (c *Client) GetChunk(ctx context.Context, chunkID string) ([]byte, error) {
 	}
 	return io.ReadAll(resp.Body)
 }
+
+func (c *Client) DeleteChunk(ctx context.Context, chunkID string) error {
+	url := fmt.Sprintf("%s/chunks/%s", c.peerAddr, chunkID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return fmt.Errorf("building delete request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("deleting chunk %s from %s: %w", chunkID, c.peerAddr, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("peer %s: delete chunk %s returned status %d", c.peerAddr, chunkID, resp.StatusCode)
+	}
+	return nil
+}
+
