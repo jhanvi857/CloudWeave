@@ -1,13 +1,13 @@
 # CloudWeave
 
-CloudWeave is a fault-tolerant, self-healing distributed object storage system written in Go. Drawing architectural design principles from Amazon DynamoDB and Apache Cassandra, CloudWeave implements content-addressable chunking, consistent hashing with virtual nodes, configurable N/W/R quorum consensus, automated heartbeat failure detection, Write-Ahead Logging (WAL) durability, vector clocks, Reed-Solomon erasure coding, Prometheus metrics, and Raft metadata consensus.
+CloudWeave is a fault-tolerant, self-healing distributed object storage system written in Go. Drawing architectural design principles from Amazon DynamoDB and Apache Cassandra, CloudWeave implements content-addressable streaming chunking, consistent hashing with virtual nodes, configurable N/W/R quorum consensus, automated heartbeat failure detection, Write-Ahead Logging (WAL) durability, vector clocks, Reed-Solomon erasure coding, Prometheus metrics, mark-and-sweep garbage collection, HTTP byte-range requests, and Raft metadata consensus.
 
 ---
 
 ## Prerequisites
 
 - **Go**: Version 1.22 or higher
-- **Dependencies**: None (uses standard library and internal packages)
+- **Dependencies**: None (uses Go standard library and internal packages)
 
 ---
 
@@ -15,11 +15,12 @@ CloudWeave is a fault-tolerant, self-healing distributed object storage system w
 
 ```mermaid
 flowchart TD
-    Client["Client (HTTP / CLI)"] -->|PUT /files/:id, GET /files/:id| API["API Router & Handler"]
-    API -->|Split / Reassemble| Chunker["Chunker (SHA-256)"]
+    Client["Client (HTTP / CLI)"] -->|PUT /files/:id, GET /files/:id, DELETE /files/:id| API["API Router & Handler"]
+    API -->|SplitStream / Reassemble| Chunker["Streaming Chunker (SHA-256)"]
     API -->|Causal Versioning| VC["Vector Clock Engine"]
     API -->|Prometheus Metrics| Metrics["Metrics Exporter (/metrics)"]
     API -->|Propose Transaction| Raft["Raft Consensus Engine"]
+    API -->|Trigger Sweep| GC["Mark-and-Sweep Garbage Collector"]
     Raft -->|Local Log Write| WAL["Write-Ahead Log (metadata.wal)"]
     WAL -->|Apply Committed State| Meta["Metadata Store"]
     Chunker --> Coordinator["Quorum Coordinator (N, W, R)"]
@@ -29,6 +30,9 @@ flowchart TD
     Coordinator --> Node3["Storage Node 3 (DiskStore / Erasure Shards)"]
     Coordinator --> Node4["Storage Node 4 (DiskStore / Erasure Shards)"]
     Coordinator --> Node5["Storage Node 5 (DiskStore / Erasure Shards)"]
+
+    GC -->|Purge Orphan Chunks| Node1
+    GC -->|Purge Orphan Chunks| Node2
 
     Cluster["Cluster Failure Detector"] -->|HTTP /health Heartbeat| Node1
     Cluster -->|HTTP /health Heartbeat| Node2
@@ -50,8 +54,8 @@ flowchart TD
 
 ## Core Components
 
-1. **Content-Addressable Chunking (`internal/chunk`)**
-   Files are split into fixed-size data blocks. Each block is assigned a unique content-based identifier derived via SHA-256 hashing. On file retrieval, chunks are validated for SHA-256 integrity and reassembled in index order.
+1. **Content-Addressable Streaming Chunking (`internal/chunk`)**
+   Files are processed as streams and split into fixed-size data blocks (1 MB default). Each block is assigned a unique content-based identifier derived via SHA-256 hashing. Uploads and downloads use stream pipelines with a constant 1 MB buffer, preventing memory overflow on multi-gigabyte files.
 
 2. **Consistent Hash Ring (`internal/ring`)**
    Implements consistent hashing using 150 virtual nodes per physical node. This ensures balanced key distribution across cluster members and minimizes key migration during node joins or failures.
@@ -69,21 +73,27 @@ flowchart TD
    Monitors storage node health via periodic HTTP `/health` heartbeats. When a node fails consecutive health checks beyond the timeout window, it is removed from the consistent hash ring and marked dead.
 
 6. **Self-Healing Repair Strategy (`internal/replication`)**
-   CloudWeave employs proactive background repair for full replication mode and a hybrid proactive/reactive model for erasure coding mode. For replication ($N=3$), the background worker pool immediately re-replicates missing chunks upon node failure detection. For erasure coding ($K=4, M=2$), missing shards are reconstructed reactively at read time (`GET /files/{id}`) whenever $< K+M$ shards are present, while background workers proactively repair under-replicated shards when missing shard counts exceed 1 to prevent compound failures.
+   CloudWeave employs proactive background repair for full replication mode and a hybrid proactive/reactive model for erasure coding mode. For replication ($N=3$), the background worker pool immediately re-replicates missing chunks upon node failure detection. For erasure coding ($K=4, M=2$), missing shards are reconstructed reactively at read time (`GET /files/{id}`) whenever less than $K+M$ shards are present, while background workers proactively repair under-replicated shards when missing shard counts exceed 1.
 
 7. **Write-Ahead Logging (`internal/metadata`)**
-   The Write-Ahead Log (`metadata.wal`) serves as Raft's local persistent log store. Every Raft proposed transaction (`ProposeManifest`, `ProposeLocationUpdate`) is logged synchronously to disk via `metadata.wal` before being applied to the in-memory metadata store. On process restart, `metadata.wal` replays committed log entries to reconstruct memory state with zero data loss.
+   The Write-Ahead Log (`metadata.wal`) serves as Raft's local persistent log store. Every proposed metadata transaction (`OpRecordManifest`, `OpUpdateLocations`, `OpDeleteManifest`) is logged synchronously to disk via `metadata.wal` before being applied to the in-memory metadata store. On process restart, `metadata.wal` replays committed log entries to reconstruct memory state with zero data loss.
 
-8. **Vector Clocks (`internal/vectorclock`)**
-   Provides logical vector clocks (`map[string]uint64`) to track causal event relationships (`Before`, `After`, `Concurrent`, `Equal`) and resolve concurrent multi-master update conflicts.
+8. **Object Deletion and Mark-and-Sweep Garbage Collection (`internal/gc`, `internal/api`)**
+   Provides full CRUD lifecycle via `DELETE /files/{id}`, removing metadata records and appending deletion records to the WAL log. An automated Mark-and-Sweep Garbage Collector (`POST /admin/gc`) snapshots active manifest references and sweeps local disk stores to purge unreferenced orphan chunks.
 
-9. **Reed-Solomon Erasure Coding (`internal/erasure`)**
-   Implements pure Go Galois Field $GF(2^8)$ Reed-Solomon $K+M$ erasure coding ($K=4, M=2$). Enables full data reconstruction even if up to $M=2$ arbitrary data or parity shards are lost, reducing storage overhead from 300% to 150%.
+9. **HTTP Range Requests (`internal/api`)**
+   Supports standard HTTP byte-range requests (`Range: bytes=start-end`, `bytes=start-`, `bytes=-suffix`) returning HTTP `206 Partial Content`. Directly maps byte offsets to target chunk index ranges, streaming requested sub-ranges for media seeking and resumeable downloads.
 
-10. **Prometheus Metrics Exporter (`internal/metrics`)**
+10. **Vector Clocks (`internal/vectorclock`)**
+    Provides logical vector clocks (`map[string]uint64`) to track causal event relationships (`Before`, `After`, `Concurrent`, `Equal`) and resolve concurrent multi-master update conflicts.
+
+11. **Reed-Solomon Erasure Coding (`internal/erasure`)**
+    Implements pure Go Galois Field $GF(2^8)$ Reed-Solomon $K+M$ erasure coding ($K=4, M=2$). Enables full data reconstruction even if up to $M=2$ arbitrary data or parity shards are lost, reducing storage overhead from 300% to 150%.
+
+12. **Prometheus Metrics Exporter (`internal/metrics`)**
     Exposes live Prometheus operational counters and gauges at `GET /metrics` (`cloudweave_file_uploads_total`, `cloudweave_file_downloads_total`, `cloudweave_repaired_chunks_total`, `cloudweave_active_nodes`).
 
-11. **Raft Metadata Consensus Engine (`internal/consensus`)**
+13. **Raft Metadata Consensus Engine (`internal/consensus`)**
     Implements a Raft-backed replicated log state machine to achieve distributed consensus across metadata store nodes, ensuring leader election and state synchronization.
 
 ---
@@ -111,7 +121,7 @@ The node executable (`cmd/node/main.go`) supports runtime flags for networking, 
 
 ### 1. Build and Run Tests
 
-Run the complete unit test suite across all 11 packages:
+Run the complete unit test suite across all packages:
 ```bash
 go test -v ./...
 ```
@@ -158,10 +168,25 @@ go run cmd/node/main.go -port 8084 -data ./data-node5 -peers http://localhost:80
 
 ### 3. Verification Scenarios & Failure Demos
 
-#### Basic File Upload & Download (`PUT /files/{id}`, `GET /files/{id}`):
+#### Basic File Operations (`PUT`, `GET`, `DELETE`):
 ```powershell
+# Upload file
 curl.exe -X PUT --data-binary "Hello CloudWeave Distributed World!" http://localhost:8080/files/demo-doc
+
+# Download full file
 curl.exe http://localhost:8080/files/demo-doc
+
+# Delete file manifest
+curl.exe -X DELETE http://localhost:8080/files/demo-doc
+
+# Trigger Mark-and-Sweep Garbage Collection pass
+curl.exe -X POST http://localhost:8080/admin/gc
+```
+
+#### HTTP Byte-Range Request (Partial Content / Media Seeking):
+```powershell
+# Request bytes 0 through 11
+curl.exe -H "Range: bytes=0-11" http://localhost:8080/files/demo-doc
 ```
 
 #### Query Prometheus Metrics (`GET /metrics`):
@@ -202,6 +227,12 @@ curl.exe http://localhost:8080/metrics
 
 ## Design Decisions and Trade-offs
 
+### Why Constant-Memory Streaming I/O over In-Memory Buffering (`io.ReadAll`)?
+Reading an entire request body into RAM via `io.ReadAll` introduces memory exhaustion vulnerabilities when receiving multi-gigabyte uploads. CloudWeave uses Go `io.Reader` and `io.Writer` interfaces with a fixed 1 MB buffer to stream chunks directly to storage nodes. This maintains a bounded memory footprint regardless of whether the file payload is 10 MB or 10 GB.
+
+### Why Mark-and-Sweep Garbage Collection over Inline Reference Counting?
+Inline reference counting requires updating global counters across metadata stores whenever a file is deleted. In distributed environments, network latency and partial failures make atomic reference counting complex and error-prone. CloudWeave uses Mark-and-Sweep Garbage Collection: the mark phase gathers active chunk IDs from live manifests, and the sweep phase purges unreferenced orphan chunks from disk asynchronously.
+
 ### Why $W + R > N$ over Eventual Consistency?
 Selecting $W + R > N$ guarantees strong consistency via the Pigeonhole Principle. By ensuring the write node set ($W$) and read node set ($R$) overlap by at least one node, read operations are guaranteed to encounter the most recent write version. Choosing lower quorum values ($W + R \le N$) improves write latency but introduces stale reads that require complex anti-entropy mechanisms (such as read-repair or active Merkle tree sync).
 
@@ -219,6 +250,3 @@ Selecting $K=4, M=2$ strikes an optimal balance for medium-sized clusters (5-10 
 
 ### Why Vector Clocks over Last-Write-Wins (LWW) Timestamps?
 Wall-clock timestamps relying on NTP are vulnerable to clock skew across physical machines. In concurrent multi-master writes, Machine A (with a clock skewed +500ms into the future) could overwrite Machine B's write even if Machine B wrote later in real time. Vector clocks (`map[nodeID]counter`) track true causal relationships (`Before`, `After`, `Concurrent`), explicitly catching concurrent write conflicts that LWW would silently overwrite.
-
-### Why Proactive Background Repair vs. Reactive Read-Time Reconstruction for Erasure Shards?
-Proactive background repair immediately restores lost shards upon node failure, protecting against compound failures (e.g. losing $M+1$ nodes before a read occurs). However, it consumes background disk I/O and network bandwidth. Reactive read-time reconstruction defers work until access, saving cluster bandwidth for cold data at the risk of data loss if additional nodes fail before the next access. CloudWeave uses proactive repair for full replication and a hybrid proactive/reactive model for erasure coding.
