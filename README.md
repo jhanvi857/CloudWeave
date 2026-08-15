@@ -1,13 +1,14 @@
 # CloudWeave
 
-CloudWeave is a fault-tolerant, self-healing distributed object storage system written in Go. Drawing architectural design principles from Amazon DynamoDB and Apache Cassandra, CloudWeave implements content-addressable streaming chunking, consistent hashing with virtual nodes, configurable N/W/R quorum consensus, automated heartbeat failure detection, Write-Ahead Logging (WAL) durability, vector clocks, Reed-Solomon erasure coding, Prometheus metrics, mark-and-sweep garbage collection, HTTP byte-range requests, and Raft metadata consensus.
+CloudWeave is a production-ready, multi-tenant distributed object storage system written in Go. Drawing architectural design principles from Amazon DynamoDB, S3, and Apache Cassandra, CloudWeave implements content-addressable streaming chunking, consistent hashing with virtual nodes, configurable N/W/R quorum consensus, automated heartbeat failure detection, Write-Ahead Logging (WAL) durability, vector clocks, Reed-Solomon erasure coding, Prometheus metrics, mark-and-sweep garbage collection, HTTP byte-range requests, Raft metadata consensus, multi-tenant namespace isolation, SHA-256 hashed API key authentication, dynamic cluster membership (join/leave), end-to-end TLS encryption, and an importable Go Client SDK with automatic node discovery.
 
 ---
 
 ## Prerequisites
 
 - **Go**: Version 1.22 or higher
-- **Dependencies**: None (uses Go standard library and internal packages)
+- **Dependencies**: Standard Go library & internal packages (zero external heavy C/C++ runtime requirements)
+- **Docker & Docker Compose**: (Optional, for multi-node containerized deployment)
 
 ---
 
@@ -15,15 +16,20 @@ CloudWeave is a fault-tolerant, self-healing distributed object storage system w
 
 ```mermaid
 flowchart TD
-    Client["Client (HTTP / CLI)"] -->|PUT /files/:id, GET /files/:id, DELETE /files/:id| API["API Router & Handler"]
+    Client["Client (Go SDK / HTTP / CLI)"] -->|HTTPS + Bearer Key| API["API Router & Auth Middleware"]
+    API -->|Validate Key Hash| Auth["SHA-256 Auth Engine"]
     API -->|SplitStream / Reassemble| Chunker["Streaming Chunker (SHA-256)"]
     API -->|Causal Versioning| VC["Vector Clock Engine"]
     API -->|Prometheus Metrics| Metrics["Metrics Exporter (/metrics)"]
     API -->|Propose Transaction| Raft["Raft Consensus Engine"]
     API -->|Trigger Sweep| GC["Mark-and-Sweep Garbage Collector"]
-    Raft -->|Local Log Write| WAL["Write-Ahead Log (metadata.wal)"]
-    WAL -->|Apply Committed State| Meta["Metadata Store"]
-    Chunker --> Coordinator["Quorum Coordinator (N, W, R)"]
+    API -->|Topology Discovery| Discovery["GET /cluster/nodes"]
+    
+    Auth -->|Record/Delete Key| WAL["Write-Ahead Log (metadata.wal)"]
+    Raft -->|Local Log Write| WAL
+    WAL -->|Replay Committed State| Meta["Metadata Store"]
+
+    Chunker --> Coordinator["Any-Node Quorum Coordinator (N, W, R)"]
     Coordinator --> Ring["Consistent Hash Ring (Virtual Nodes)"]
     Coordinator --> Node1["Storage Node 1 (DiskStore / Erasure Shards)"]
     Coordinator --> Node2["Storage Node 2 (DiskStore / Erasure Shards)"]
@@ -34,11 +40,11 @@ flowchart TD
     GC -->|Purge Orphan Chunks| Node1
     GC -->|Purge Orphan Chunks| Node2
 
-    Cluster["Cluster Failure Detector"] -->|HTTP /health Heartbeat| Node1
-    Cluster -->|HTTP /health Heartbeat| Node2
-    Cluster -->|HTTP /health Heartbeat| Node3
-    Cluster -->|HTTP /health Heartbeat| Node4
-    Cluster -->|HTTP /health Heartbeat| Node5
+    Cluster["Cluster Failure Detector"] -->|HTTP/HTTPS Heartbeat| Node1
+    Cluster -->|HTTP/HTTPS Heartbeat| Node2
+    Cluster -->|HTTP/HTTPS Heartbeat| Node3
+    Cluster -->|HTTP/HTTPS Heartbeat| Node4
+    Cluster -->|HTTP/HTTPS Heartbeat| Node5
 
     Cluster -->|Remove Dead Node| Ring
     Cluster -->|Trigger Dead Node Event| Repair["Self-Healing Repair Manager"]
@@ -66,54 +72,101 @@ flowchart TD
    - **W** (Write Quorum): Minimum number of successful write acknowledgments required for a write operation to succeed.
    - **R** (Read Quorum): Minimum number of successful node reads required for a read operation to succeed.
 
-4. **Storage Architecture: Dual-Mode Engine**
-   CloudWeave supports two selectable storage engine strategies via `-storage-mode`: **Full Replication Mode** (`replication`, default) and **Reed-Solomon Erasure Coding Mode** (`erasure`). In Full Replication mode ($N=3, W=2, R=2$), chunks are copied $N$ times across the ring. In Erasure Coding mode (`-storage-mode=erasure -k=4 -m=2`), data blocks are split into $K=4$ data shards and $M=2$ parity shards before distribution across the Hash Ring.
+4. **Any-Node Coordination Guarantee (`internal/api`, `internal/coordinator`)**
+   Clients can execute requests (`PUT`, `GET`, `DELETE`, Range `GET`) against **any node** in the cluster. The entry node coordinates chunk distribution across consistent hash rings and peer replication transparently.
 
-5. **Cluster Failure Detection (`internal/cluster`)**
-   Monitors storage node health via periodic HTTP `/health` heartbeats. When a node fails consecutive health checks beyond the timeout window, it is removed from the consistent hash ring and marked dead.
+5. **Multi-Tenant Namespacing & Custom Metadata (`internal/auth`, `internal/metadata`)**
+   Objects are isolated within tenant namespaces (`X-Namespace` header or `/files/<namespace>/<key>`), preventing key collisions across tenants. Custom metadata headers (`X-Meta-<Key>: <Value>`) and `Content-Type` are stored in manifests and returned on retrieval.
 
-6. **Self-Healing Repair Strategy (`internal/replication`)**
-   CloudWeave employs proactive background repair for full replication mode and a hybrid proactive/reactive model for erasure coding mode. For replication ($N=3$), the background worker pool immediately re-replicates missing chunks upon node failure detection. For erasure coding ($K=4, M=2$), missing shards are reconstructed reactively at read time (`GET /files/{id}`) whenever less than $K+M$ shards are present, while background workers proactively repair under-replicated shards when missing shard counts exceed 1.
+6. **SHA-256 Hashed Credential Security & Dynamic Key Management (`internal/auth`, `internal/api`)**
+   Admin endpoints (`POST /admin/keys`, `DELETE /admin/keys`, `GET /admin/keys`) allow dynamic key generation and revocation. Server generates 24-byte random keys (`crypto/rand`) returned **once** to the client. Keys are hashed using SHA-256 before storage; plaintext keys are **never** stored on disk or in the WAL.
 
-7. **Write-Ahead Logging (`internal/metadata`)**
-   The Write-Ahead Log (`metadata.wal`) serves as Raft's local persistent log store. Every proposed metadata transaction (`OpRecordManifest`, `OpUpdateLocations`, `OpDeleteManifest`) is logged synchronously to disk via `metadata.wal` before being applied to the in-memory metadata store. On process restart, `metadata.wal` replays committed log entries to reconstruct memory state with zero data loss.
+7. **End-to-End TLS Encryption (`cmd/node`, `internal/transport`)**
+   Supports TLS encryption (`-tls-cert`, `-tls-key`, `-tls-ca`) across both client-facing HTTP APIs and inter-node mesh transport (`PutChunk`, `GetChunk`, `/internal/manifest`, join/leave heartbeats).
 
-8. **Object Deletion and Mark-and-Sweep Garbage Collection (`internal/gc`, `internal/api`)**
-   Provides full CRUD lifecycle via `DELETE /files/{id}`, removing metadata records and appending deletion records to the WAL log. An automated Mark-and-Sweep Garbage Collector (`POST /admin/gc`) snapshots active manifest references and sweeps local disk stores to purge unreferenced orphan chunks.
+8. **Dynamic Cluster Membership & Topology Discovery (`internal/cluster`, `client`)**
+   Nodes join (`POST /admin/join`) or leave (`POST /admin/leave`) the cluster live without process restarts. External SDK clients query `GET /cluster/nodes` or enable background discovery (`EnableAutoDiscovery: true`) to automatically learn about topology updates.
 
-9. **HTTP Range Requests (`internal/api`)**
-   Supports standard HTTP byte-range requests (`Range: bytes=start-end`, `bytes=start-`, `bytes=-suffix`) returning HTTP `206 Partial Content`. Directly maps byte offsets to target chunk index ranges, streaming requested sub-ranges for media seeking and resumeable downloads.
+9. **Importable Go Client SDK (`client/`)**
+   Full-featured Go SDK providing simple object operations (`Put`, `Get`, `RangeGet`, `Delete`), automatic round-robin endpoint balancing, failover retries, and background topology discovery.
 
-10. **Vector Clocks (`internal/vectorclock`)**
-    Provides logical vector clocks (`map[string]uint64`) to track causal event relationships (`Before`, `After`, `Concurrent`, `Equal`) and resolve concurrent multi-master update conflicts.
+10. **Storage Architecture: Dual-Mode Engine (`internal/storage`, `internal/erasure`)**
+    Supports **Full Replication Mode** (`replication`, default $N=3, W=2, R=2$) and **Reed-Solomon Erasure Coding Mode** (`-storage-mode=erasure -k=4 -m=2`), splitting data blocks into $K=4$ data shards and $M=2$ parity shards over Galois Field $GF(2^8)$.
 
-11. **Reed-Solomon Erasure Coding (`internal/erasure`)**
-    Implements pure Go Galois Field $GF(2^8)$ Reed-Solomon $K+M$ erasure coding ($K=4, M=2$). Enables full data reconstruction even if up to $M=2$ arbitrary data or parity shards are lost, reducing storage overhead from 300% to 150%.
+11. **Write-Ahead Logging & Durability (`internal/metadata`)**
+    The Write-Ahead Log (`metadata.wal`) records metadata transactions (`OpRecordManifest`, `OpUpdateLocations`, `OpDeleteManifest`, `OpRecordKey`, `OpDeleteKey`) synchronously to disk before confirming writes. On restart, WAL replays log entries with zero data loss.
 
-12. **Prometheus Metrics Exporter (`internal/metrics`)**
-    Exposes live Prometheus operational counters and gauges at `GET /metrics` (`cloudweave_file_uploads_total`, `cloudweave_file_downloads_total`, `cloudweave_repaired_chunks_total`, `cloudweave_active_nodes`).
+12. **Object Deletion & Garbage Collection (`internal/gc`, `internal/api`)**
+    `DELETE /files/{key}` removes metadata records. Automated Mark-and-Sweep Garbage Collection (`POST /admin/gc`) snapshots active manifest references and sweeps local disk stores to purge unreferenced orphan chunks.
 
-13. **Raft Metadata Consensus Engine (`internal/consensus`)**
-    Implements a Raft-backed replicated log state machine to achieve distributed consensus across metadata store nodes, ensuring leader election and state synchronization.
+13. **HTTP Byte-Range Requests (`internal/api`)**
+    Supports standard HTTP byte-range requests (`Range: bytes=start-end`) returning HTTP `206 Partial Content` for media seeking and resumable downloads.
+
+14. **Vector Clocks (`internal/vectorclock`)**
+    Tracks logical vector clocks (`map[string]uint64`) to resolve concurrent multi-master update conflicts (`Before`, `After`, `Concurrent`, `Equal`).
+
+15. **Prometheus Metrics Exporter (`internal/metrics`)**
+    Exposes live operational counters and gauges at `GET /metrics` (`cloudweave_file_uploads_total`, `cloudweave_file_downloads_total`, `cloudweave_repaired_chunks_total`, `cloudweave_active_nodes`).
+
+16. **Raft Metadata Consensus Engine (`internal/consensus`)**
+    Implements a Raft-backed replicated log state machine to achieve distributed consensus across metadata store nodes.
+
+17. **Embedded Real-Time Web Dashboard (`internal/api`)**
+    Single-page responsive dashboard UI embedded directly in node binary (`GET /dashboard`), visualizing live node health, active topologies, real-time Prometheus statistics, and an admin-gated "Simulate Kill" button (`POST /admin/kill`) demonstrating automatic cluster failover and self-healing.
+
+18. **File Versioning (`internal/metadata`, `client`)**
+    Supports vector clock manifest history retention. Overwritten keys archive prior versions under unique version IDs (`GET /files/{key}?versions=true`, `GET /files/{key}?version_id={id}`).
+
+19. **Client-Side Argon2id & Convergent Encryption (`client`)**
+    Provides zero-knowledge client-side encryption using AES-256-GCM and memory-hard Argon2id key derivation. Includes **Convergent Encryption mode**, deriving deterministic HMAC salt/nonce from plaintext so identical encrypted chunks produce matching ciphertext hashes, allowing **deduplication and client-side encryption to operate seamlessly together**.
+
+20. **Command Line Interface `cweave` (`cmd/cweave`)**
+    Dedicated CLI binary supporting `cweave put <file>`, `cweave get <key>`, `cweave versions <key>`, `cweave rm <key>`, and `cweave ls`.
+
+21. **Content-Defined Chunking & Deduplication (`internal/chunk`)**
+    Implements FastCDC / Gear hash rolling content-defined chunking. Identical content blocks share identical SHA-256 chunk IDs across different files, eliminating duplicate block storage on disk.
+
+---
+
+## Performance Benchmarks
+
+CloudWeave includes a repeatable benchmark suite (`test/benchmark/benchmark_test.go`). Performance measurements over 5-iteration empirical runs (`go test -bench . -count=5 ./test/benchmark`):
+
+| Metric | Baseline | Empirical Range / Median | Category & Architectural Analysis |
+| :--- | :--- | :--- | :--- |
+| **Upload Throughput (2MB)** | ~21.9 MB/s | **92.25 – 214.38 MB/s** (~151.61 MB/s) | **+4.4x – +9.5x Real Win** — Fixed disk store locking & `MoveFileEx`/`os.CreateTemp` overhead. |
+| **Download (2MB Post-Write Read)** | ~10.14 MB/s | **109.62 – 231.18 MB/s** (~120.90 MB/s) | **OS Page Cache Sensitive** — Plain range; uncached disk tier (~109 MB/s) vs OS page cache hit (~231 MB/s). |
+| **Download (10MB Post-Write Read)** | ~10.14 MB/s | **128.98 – 149.62 MB/s** (~142.78 MB/s) | **OS Page Cache Sensitive** — Varies dynamically with kernel filesystem page cache residency. |
+| **Download (Warm Cache - LRU RAM)** | ~10.14 MB/s | **75.06 – 177.57 MB/s** (~94.68 MB/s) | **+7.4x – +17.5x Real Win** — In-memory LRU cache hit latency (~11.8 – 27.9 ms/op). |
+| **Concurrent Load Latency** | ~47 req/sec | **289.2 – 558.8 req/sec** (~333 req/sec) | **+6.1x – +11.8x Real Win** — Connection pooling with `http.Transport` keep-alives. |
+
+*Architectural Takeaway*: Eliminating global mutex lock contention around disk I/O and bypassing slow `os.CreateTemp` + `MoveFileEx` (`os.Rename`) syscall sequences delivered a **~4.4x – 9.5x boost in upload throughput**, unlocking true parallel chunk writes. Persistent HTTP connection pooling (`http.Transport`) eliminates per-request TCP/mTLS handshake overhead.
+
+For complete empirical analysis and bottleneck breakdown, see [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 
 ---
 
 ## CLI Configuration Flags
 
-The node executable (`cmd/node/main.go`) supports runtime flags for networking, storage paths, storage strategy, and quorum parameters:
+The node executable (`cmd/node/main.go`) supports runtime flags and environment variables:
 
-| Flag | Default | Description |
-| :--- | :--- | :--- |
-| `-port` | `8080` | Port for HTTP API and inter-node storage traffic |
-| `-data` | `./data` | Directory path for local chunk storage |
-| `-peers` | `""` | Comma-separated list of peer node HTTP addresses |
-| `-wal` | `<data>/metadata.wal` | Path to Write-Ahead Log file for metadata durability |
-| `-storage-mode` | `replication` | Storage engine strategy (`replication` or `erasure`) |
-| `-k` | `4` | Number of data shards K for erasure coding mode |
-| `-m` | `2` | Number of parity shards M for erasure coding mode |
-| `-n` | `3` | Replication factor N (number of replicas per chunk) |
-| `-w` | `2` | Write quorum W (minimum ACKs required for write success) |
-| `-r` | `2` | Read quorum R (minimum successful reads required for GET) |
+| Flag | Env Var | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `-port` | `CLOUDWEAVE_PORT` | `8080` | Port for HTTP API and inter-node transport |
+| `-data` | `CLOUDWEAVE_DATA` | `./data` | Directory path for local chunk storage |
+| `-peers` | `CLOUDWEAVE_PEERS` | `""` | Comma-separated list of peer node HTTP/HTTPS addresses |
+| `-wal` | `CLOUDWEAVE_WAL` | `<data>/metadata.wal` | Path to Write-Ahead Log file for metadata durability |
+| `-api-keys` | `CLOUDWEAVE_API_KEYS` | `""` | Comma-separated initial static keys (`key=ns1;ns2` or `key=admin`) |
+| `-storage-mode` | `CLOUDWEAVE_STORAGE_MODE` | `replication` | Storage strategy (`replication` or `erasure`) |
+| `-k` | `CLOUDWEAVE_K` | `4` | Number of data shards K for erasure coding mode |
+| `-m` | `CLOUDWEAVE_M` | `2` | Number of parity shards M for erasure coding mode |
+| `-n` | `CLOUDWEAVE_N` | `3` | Replication factor N (number of replicas per chunk) |
+| `-w` | `CLOUDWEAVE_W` | `2` | Write quorum W (minimum ACKs required for write success) |
+| `-r` | `CLOUDWEAVE_R` | `2` | Read quorum R (minimum successful reads required for GET) |
+| `-tls-cert` | `CLOUDWEAVE_TLS_CERT` | `""` | Path to TLS certificate file |
+| `-tls-key` | `CLOUDWEAVE_TLS_KEY` | `""` | Path to TLS private key file |
+| `-tls-ca` | `CLOUDWEAVE_TLS_CA` | `""` | Path to CA bundle file for node-to-node TLS verification |
+| `-tls-insecure-skip-verify` | `CLOUDWEAVE_TLS_SKIP_VERIFY` | `false` | Skip TLS certificate verification for development |
 
 ---
 
@@ -126,127 +179,91 @@ Run the complete unit test suite across all packages:
 go test -v ./...
 ```
 
-Run the automated 5-node cluster failure and self-healing integration test:
+Run the automated cluster integration tests:
 ```bash
 go test -v ./test/integration/...
 ```
 
 ---
 
-### 2. Running a Local 5-Node Cluster ($N=3, W=2, R=2$)
+### 2. Docker Compose Cluster Deployment
 
-To demonstrate partial ownership and consistent hash ring repair, start 5 storage node processes in separate terminal windows:
+Launch a 5-node cluster backed by persistent named Docker volumes in one command:
+
+```bash
+docker-compose up --build
+```
+
+On first boot, Node 1 will generate a cryptographically random initial admin key and print it to the container log:
+`[SECURITY] First boot detected — Generated initial admin API Key: cw_key_...`
+
+Alternatively, pass your own custom key via environment variable:
+`CLOUDWEAVE_API_KEYS="my-secure-key=admin" docker-compose up --build`
+
+---
+
+### 3. Local Multi-Node Setup (CLI)
+
+Start a 3-node cluster manually (on first boot, Node 1 outputs your initial random admin key):
 
 **Terminal 1 (Node 1):**
 ```powershell
-go run cmd/node/main.go -port 8080 -data ./data-node1 -peers http://localhost:8081,http://localhost:8082,http://localhost:8083,http://localhost:8084
+go run cmd/node/main.go -port 8080 -data ./data-node1 -peers http://localhost:8081,http://localhost:8082
 ```
 
 **Terminal 2 (Node 2):**
 ```powershell
-go run cmd/node/main.go -port 8081 -data ./data-node2 -peers http://localhost:8080,http://localhost:8082,http://localhost:8083,http://localhost:8084
+go run cmd/node/main.go -port 8081 -data ./data-node2 -peers http://localhost:8080,http://localhost:8082
 ```
 
 **Terminal 3 (Node 3):**
 ```powershell
-go run cmd/node/main.go -port 8082 -data ./data-node3 -peers http://localhost:8080,http://localhost:8081,http://localhost:8083,http://localhost:8084
+go run cmd/node/main.go -port 8082 -data ./data-node3 -peers http://localhost:8080,http://localhost:8081
 ```
-
-**Terminal 4 (Node 4):**
-```powershell
-go run cmd/node/main.go -port 8083 -data ./data-node4 -peers http://localhost:8080,http://localhost:8081,http://localhost:8082,http://localhost:8084
-```
-
-**Terminal 5 (Node 5):**
-```powershell
-go run cmd/node/main.go -port 8084 -data ./data-node5 -peers http://localhost:8080,http://localhost:8081,http://localhost:8082,http://localhost:8083
-```
-
-> **Cross-Platform Note**: Command examples use `curl.exe` for Windows PowerShell compatibility. On macOS and Linux, replace `curl.exe` with standard `curl`.
 
 ---
 
-### 3. Verification Scenarios & Failure Demos
+### 4. Basic API Verification
 
-#### Basic File Operations (`PUT`, `GET`, `DELETE`):
-```powershell
-# Upload file
-curl.exe -X PUT --data-binary "Hello CloudWeave Distributed World!" http://localhost:8080/files/demo-doc
-
-# Download full file
-curl.exe http://localhost:8080/files/demo-doc
-
-# Delete file manifest
-curl.exe -X DELETE http://localhost:8080/files/demo-doc
-
-# Trigger Mark-and-Sweep Garbage Collection pass
-curl.exe -X POST http://localhost:8080/admin/gc
+#### Issue a Tenant API Key (`POST /admin/keys`):
+```bash
+curl -X POST http://localhost:8080/admin/keys \
+  -H "Authorization: Bearer <YOUR_INITIAL_ADMIN_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"namespaces": ["tenant1"], "is_admin": false}'
+# Returns: {"key": "cw_key_...", "key_hash": "...", "namespaces": ["tenant1"], "is_admin": false}
 ```
 
-#### HTTP Byte-Range Request (Partial Content / Media Seeking):
-```powershell
-# Request bytes 0 through 11
-curl.exe -H "Range: bytes=0-11" http://localhost:8080/files/demo-doc
+#### Upload Object (`PUT /files/{key}`):
+```bash
+curl -X PUT http://localhost:8080/files/tenant1/documents/hello.txt \
+  -H "Authorization: Bearer cw_key_..." \
+  -H "Content-Type: text/plain" \
+  -H "X-Meta-Author: Alice" \
+  --data-binary "Hello CloudWeave Distributed World!"
 ```
 
-#### Query Prometheus Metrics (`GET /metrics`):
-```powershell
-curl.exe http://localhost:8080/metrics
+#### Download Object (`GET /files/{key}`):
+```bash
+curl -X GET http://localhost:8080/files/tenant1/documents/hello.txt \
+  -H "Authorization: Bearer cw_key_..."
 ```
 
-#### Demo Scenario 1: Partial Ownership Self-Healing Repair
-1. In a 5-node cluster with $N=3$, chunks are distributed across the hash ring. Each node stores only a subset of total dataset chunks.
-2. Terminate Node 2 (`Ctrl+C` in Terminal 2).
-3. Observe Node 1 output log:
-   `[Cluster] Event: Node http://localhost:8081 died, submitting repair job...`
-   `[RepairWorker 0] Repair for http://localhost:8081 completed (3 chunks re-replicated)`
-   *Notice that only the specific chunks owned by Node 2 are re-replicated to active nodes.*
-4. Download the file from Node 1 to verify uninterrupted availability:
-   ```powershell
-   curl.exe http://localhost:8080/files/demo-doc
-   ```
+#### HTTP Byte-Range Request (`Range: bytes=0-11`):
+```bash
+curl -X GET http://localhost:8080/files/tenant1/documents/hello.txt \
+  -H "Authorization: Bearer cw_key_..." \
+  -H "Range: bytes=0-11"
+```
 
-#### Demo Scenario 2: Double-Shard Loss & Reed-Solomon Erasure Reconstruction ($K=4, M=2$)
-1. Encode a 50MB file into $K=4$ data shards and $M=2$ parity shards (`internal/erasure`).
-2. Simulate dual node failures by deleting 2 shards simultaneously (e.g. data shard 1 and parity shard 5).
-3. Execute reconstruction:
-   `[Erasure] Missing 2 shards detected. Matrix inversion over GF(2^8) initialized...`
-   `[Erasure] Reconstruction successful. Reassembled 52,428,800 bytes (100% byte-identical)`
-4. Test verification: `go test -v ./internal/erasure` validates 100% byte equality after losing any $M=2$ shards.
-
-#### Demo Scenario 3: Raft Leader Failure & Automatic Failover
-1. Query active Raft node status: Node 1 is current Leader (Term 1).
-2. Terminate Node 1 process (`kill -9`).
-3. Follower nodes detect missing leader heartbeats, increment term to Term 2, and hold candidate election:
-   `[Raft] Leader heartbeat timeout. Starting election for Term 2...`
-   `[Raft] Node http://localhost:8081 elected new Leader (Term 2) in 142ms`
-4. Submit `PUT /files/demo-doc2` to Node 2 (new Leader). Operation succeeds with consensus state intact.
-5. Re-fetch the original `demo-doc` file (`curl.exe http://localhost:8081/files/demo-doc`) from the new Leader node. Operation succeeds with 100% byte-identical content, proving that metadata state survived the leader failover without data loss.
+#### Discover Active Topology (`GET /cluster/nodes`):
+```bash
+curl -X GET http://localhost:8080/cluster/nodes \
+  -H "Authorization: Bearer cw_key_..."
+```
 
 ---
 
-## Design Decisions and Trade-offs
+## Developer API Documentation
 
-### Why Constant-Memory Streaming I/O over In-Memory Buffering (`io.ReadAll`)?
-Reading an entire request body into RAM via `io.ReadAll` introduces memory exhaustion vulnerabilities when receiving multi-gigabyte uploads. CloudWeave uses Go `io.Reader` and `io.Writer` interfaces with a fixed 1 MB buffer to stream chunks directly to storage nodes. This maintains a bounded memory footprint regardless of whether the file payload is 10 MB or 10 GB.
-
-### Why Mark-and-Sweep Garbage Collection over Inline Reference Counting?
-Inline reference counting requires updating global counters across metadata stores whenever a file is deleted. In distributed environments, network latency and partial failures make atomic reference counting complex and error-prone. CloudWeave uses Mark-and-Sweep Garbage Collection: the mark phase gathers active chunk IDs from live manifests, and the sweep phase purges unreferenced orphan chunks from disk asynchronously.
-
-### Why $W + R > N$ over Eventual Consistency?
-Selecting $W + R > N$ guarantees strong consistency via the Pigeonhole Principle. By ensuring the write node set ($W$) and read node set ($R$) overlap by at least one node, read operations are guaranteed to encounter the most recent write version. Choosing lower quorum values ($W + R \le N$) improves write latency but introduces stale reads that require complex anti-entropy mechanisms (such as read-repair or active Merkle tree sync).
-
-### Why Consistent Hashing with Virtual Nodes over Modulo Hashing ($Hash \% N$)?
-Modulo hashing ($Hash \% N$) causes nearly 100% of keys to remap whenever a node is added or removed from the cluster. Consistent hashing maps keys to a continuous 32-bit ring. When node count changes, only $K/N$ keys move (where $K$ is total keys and $N$ is total nodes). Adding 150 virtual nodes per physical machine prevents hot-spotting by evenly spreading key ranges across the ring.
-
-### Why Write-Ahead Logging (WAL) over Periodic Snapshots?
-Periodic snapshotting loses all state mutations performed between snapshot intervals if a node crashes. An append-only Write-Ahead Log (WAL) records every metadata state mutation synchronously to disk before confirming operations. On startup, replaying the WAL reconstructs exact memory state with zero data loss.
-
-### Why Raft for Metadata Consensus over Single-Leader Failover?
-Single-leader failover (e.g. active-passive via VIP or DNS) risks split-brain scenarios during network partitions, where two nodes both claim leadership and write conflicting metadata. Raft uses majority quorum voting ($N/2 + 1$), guaranteeing at most one leader per term and preventing split-brain metadata corruption.
-
-### Why 4+2 Reed-Solomon ($K=4, M=2$) specifically?
-Selecting $K=4, M=2$ strikes an optimal balance for medium-sized clusters (5-10 nodes): it provides a 150% storage footprint (compared to 300% for 3x replication) while tolerating up to 2 simultaneous node failures. Larger configurations like $6+3$ or $8+4$ increase network fan-out latency and matrix inversion CPU overhead without significant durability gains for small to medium cluster sizes.
-
-### Why Vector Clocks over Last-Write-Wins (LWW) Timestamps?
-Wall-clock timestamps relying on NTP are vulnerable to clock skew across physical machines. In concurrent multi-master writes, Machine A (with a clock skewed +500ms into the future) could overwrite Machine B's write even if Machine B wrote later in real time. Vector clocks (`map[nodeID]counter`) track true causal relationships (`Before`, `After`, `Concurrent`), explicitly catching concurrent write conflicts that LWW would silently overwrite.
+For the complete API reference, error codes, authentication formats, and Go SDK guide, see [`docs/API.md`](docs/API.md).
