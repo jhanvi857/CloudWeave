@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudWeave Distributed Storage Cluster</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #090d16;
+            --card-bg: rgba(18, 26, 44, 0.7);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --primary: #3b82f6;
+            --primary-glow: rgba(59, 130, 246, 0.35);
+            --accent: #8b5cf6;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(circle at 15% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 85% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 40%);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2.5rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            width: 38px;
+            height: 38px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 1.2rem;
+            color: white;
+            box-shadow: 0 0 15px var(--primary-glow);
+        }
+
+        h1 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            background: linear-gradient(to right, #ffffff, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .badge {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            padding: 0.35rem 0.85rem;
+            border-radius: 20px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .stat-value {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #ffffff;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .section-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .table-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            overflow: hidden;
+            margin-bottom: 2.5rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 1rem 1.5rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        td {
+            padding: 1.1rem 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            font-size: 0.95rem;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .node-addr {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 500;
+            color: #e5e7eb;
+        }
+
+        .status-pill {
+            padding: 0.25rem 0.65rem;
+            border-radius: 12px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            display: inline-block;
+        }
+
+        .status-alive {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .status-dead {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-kill {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            padding: 0.45rem 0.9rem;
+            border-radius: 8px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-kill:hover {
+            background: var(--danger);
+            color: white;
+            box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+        }
+
+        .log-box {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: #10b981;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            margin-bottom: 0.4rem;
+            opacity: 0.9;
+        }
+
+        .log-time {
+            color: var(--text-muted);
+            margin-right: 0.5rem;
+        }
+
+        footer {
+            margin-top: 3rem;
+            text-align: center;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="brand">
+                <div class="logo-icon">CW</div>
+                <div>
+                    <h1>CloudWeave Mesh Engine</h1>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">Distributed Quorum Object Storage</div>
+                </div>
+            </div>
+            <div class="badge">
+                <div class="pulse-dot"></div>
+                Cluster Health: Optimal
+            </div>
+        </header>
+
+        <div class="stats-grid">
+            <div class="card">
+                <div class="stat-label">Active Storage Nodes</div>
+                <div class="stat-value" id="activeNodesCount">0</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Total File Uploads</div>
+                <div class="stat-value" id="uploadsTotal">0</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Total File Downloads</div>
+                <div class="stat-value" id="downloadsTotal">0</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Self-Healed Chunks</div>
+                <div class="stat-value" id="repairedChunksTotal" style="color: #34d399;">0</div>
+            </div>
+        </div>
+
+        <div class="section-title">
+            <span>Cluster Mesh Nodes</span>
+            <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">Live Ring Topology</span>
+        </div>
+
+        <div class="table-card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Node Address</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Demo Action</th>
+                    </tr>
+                </thead>
+                <tbody id="nodesTableBody">
+                    <tr><td colspan="4" style="text-align:center; color: var(--text-muted);">Loading cluster topology...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section-title">
+            <span>Self-Healing & Event Feed</span>
+        </div>
+        <div class="log-box" id="eventLogs">
+            <div class="log-entry"><span class="log-time">[SYSTEM]</span> Dashboard connected to CloudWeave node cluster monitoring feed.</div>
+        </div>
+
+        <footer>
+            CloudWeave High-Performance Storage Architecture &copy; 2026
+        </footer>
+    </div>
+
+    <script>
+        let previousActiveNodes = 0;
+
+        function addLog(msg) {
+            const container = document.getElementById('eventLogs');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const time = new Date().toLocaleTimeString();
+            entry.innerHTML = `<span class="log-time">[${time}]</span> ${msg}`;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function fetchClusterStatus() {
+            try {
+                const res = await fetch('/cluster/status');
+                if (!res.ok) return;
+                const data = await res.json();
+
+                document.getElementById('activeNodesCount').textContent = data.active_nodes.length;
+                document.getElementById('uploadsTotal').textContent = data.file_uploads_total;
+                document.getElementById('downloadsTotal').textContent = data.file_downloads_total;
+                document.getElementById('repairedChunksTotal').textContent = data.repaired_chunks_total;
+
+                if (previousActiveNodes > 0 && data.active_nodes.length < previousActiveNodes) {
+                    addLog(`<span style="color:#ef4444;">WARNING: Node failure detected! Re-balancing hash ring and triggering repair worker pool...</span>`);
+                } else if (previousActiveNodes > 0 && data.active_nodes.length > previousActiveNodes) {
+                    addLog(`<span style="color:#34d399;">SUCCESS: Node joined cluster! Updating virtual node rings.</span>`);
+                }
+                previousActiveNodes = data.active_nodes.length;
+
+                const tbody = document.getElementById('nodesTableBody');
+                tbody.innerHTML = '';
+
+                data.all_nodes.forEach(node => {
+                    const tr = document.createElement('tr');
+                    const isAlive = data.active_nodes.includes(node.addr);
+
+                    tr.innerHTML = `
+                        <td class="node-addr">${node.addr} ${node.is_local ? '<span style="color:var(--primary); font-size:0.75rem;">(this node)</span>' : ''}</td>
+                        <td>${node.is_local ? 'Coordinator / Replica' : 'Storage Peer'}</td>
+                        <td>
+                            <span class="status-pill ${isAlive ? 'status-alive' : 'status-dead'}">
+                                ${isAlive ? 'ALIVE' : 'DEAD'}
+                            </span>
+                        </td>
+                        <td>
+                            ${isAlive ? `<button class="btn-kill" onclick="killNode('${node.addr}')">Simulate Kill</button>` : '<span style="color:var(--text-muted); font-size:0.8rem;">Node Down</span>'}
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error('Failed to update dashboard:', err);
+            }
+        }
+
+        async function killNode(addr) {
+            let adminKey = localStorage.getItem('cw_admin_key') || 'default-admin-key';
+            const userKey = prompt("Enter Admin API Key to authorize node termination:", adminKey);
+            if (!userKey) return;
+            localStorage.setItem('cw_admin_key', userKey);
+
+            addLog(`Authorizing node termination demo for target node ${addr}...`);
+            try {
+                const res = await fetch('/admin/kill?node_addr=' + encodeURIComponent(addr), {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + userKey }
+                });
+                if (res.ok) {
+                    addLog(`<span style="color:#f59e0b;">Node ${addr} terminated. Heartbeat detector will flag dead node...</span>`);
+                    fetchClusterStatus();
+                } else {
+                    const txt = await res.text();
+                    addLog(`<span style="color:#ef4444;">Failed to kill node ${addr}: ${txt}</span>`);
+                }
+            } catch (e) {
+                addLog(`<span style="color:#ef4444;">Error calling kill endpoint: ${e.message}</span>`);
+            }
+        }
+
+        fetchClusterStatus();
+        setInterval(fetchClusterStatus, 1500);
+    </script>
+</body>
+</html>
