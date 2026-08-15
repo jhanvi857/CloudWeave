@@ -61,3 +61,35 @@ Here's the build order, broken into phases — each one should fully work and be
 **Stretch (only after all of the above works):** vector clocks instead of timestamps for conflict resolution, erasure coding instead of full replication, sharded/replicated metadata (Raft), Prometheus metrics per node.
 
 Build strictly in this order — phases 1–2 have zero networking so you can nail the algorithms in isolation before debugging distributed behavior on top of them, which is where most people doing this project waste time.
+
+# Prompt — CloudWeave standout features + performance pass
+
+Run this in the CloudWeave project window. This is standalone work — nothing here should reference any other project.
+
+## Constraints
+- Don't break anything. All existing test suites must keep passing after every phase.
+- Work in phases, report back with a summary and test results after each phase before moving to the next.
+- Keep it generic — every feature should be documented and named as a normal object-store feature, not tied to any specific use case.
+
+---
+
+## Phase 1 — Performance
+
+1. **Parallel chunk transfers.** Currently chunks are likely sent/fetched one at a time during `PUT`/`GET`. Change this to send/fetch multiple chunks concurrently (bounded by a worker pool, not unlimited goroutines) and measure the improvement.
+2. **Connection reuse between nodes.** Ensure node-to-node HTTP/TLS clients (`internal/transport`) use persistent, pooled connections (Go's `http.Transport` with keep-alives) instead of opening a new connection per request. This matters especially now that mTLS is enabled, since every new connection pays a full TLS handshake cost.
+3. **Read caching.** Add an in-memory LRU cache for recently read chunks, with a configurable size limit, to avoid hitting disk for repeated reads of the same data.
+4. **Benchmark suite.** Write a simple, repeatable benchmark (upload/download throughput in MB/s, requests/sec under concurrent load) and run it before and after items 1–3, so there are real before/after numbers to report.
+
+## Phase 2 — Standout features
+
+5. **Web dashboard.** A small web UI (served from the node binary, e.g. via `go:embed`) showing: which nodes are alive, basic cluster stats (from the existing Prometheus metrics), and a "kill this node" demo button that lets a viewer watch the cluster detect the failure and self-heal in real time.
+6. **File versioning.** When a file at an existing key is overwritten, keep the previous version instead of discarding it, with a way to list and retrieve older versions. Build on the existing vector clock / manifest structure rather than a separate system.
+7. **Client-side encryption.** Add an option in the Go SDK to encrypt file contents on the client before upload (and decrypt after download), so data is unreadable to anyone with only node/disk access. Key management can start simple (a passphrase-derived key) — document the model clearly rather than over-engineering it.
+8. **CLI tool.** A small command-line tool (e.g. `cweave put <file>`, `cweave get <key>`, `cweave ls`, `cweave rm <key>`) wrapping the Go SDK, so the system is usable without writing code.
+9. **Deduplication.** Content-defined chunking (rather than fixed-size) so identical data across different uploads is only stored once. This is the most involved item — treat it as optional/last if time is short.
+
+## Definition of done
+- Benchmark results (before/after) are recorded somewhere in the repo (e.g. `docs/BENCHMARKS.md`).
+- The dashboard runs locally and demonstrates a live node failure + self-heal.
+- Versioning, client-side encryption, and the CLI tool each have basic tests and a short section in the docs.
+- All existing and new tests pass.

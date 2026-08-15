@@ -54,6 +54,26 @@ func (m *Membership) MarkAlive(addr string) {
 	}
 }
 
+func (m *Membership) RemoveNode(addr string) {
+	m.mu.Lock()
+	removed := false
+
+	info, exists := m.nodes[addr]
+	if exists {
+		if info.IsAlive {
+			removed = true
+		}
+		delete(m.nodes, addr)
+		m.ring.RemoveNode(addr)
+	}
+	onDeadCallback := m.onNodeDead
+	m.mu.Unlock()
+
+	if removed && onDeadCallback != nil {
+		onDeadCallback(addr)
+	}
+}
+
 func (m *Membership) MarkDead(addr string) {
 	m.mu.Lock()
 	dead := false

@@ -3,7 +3,7 @@ version: '3.8'
 services:
   node1:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
     container_name: cloudweave-node1
     environment:
@@ -18,7 +18,7 @@ services:
 
   node2:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
     container_name: cloudweave-node2
     environment:
@@ -33,7 +33,7 @@ services:
 
   node3:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
     container_name: cloudweave-node3
     environment:
@@ -48,7 +48,7 @@ services:
 
   node4:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
     container_name: cloudweave-node4
     environment:
@@ -63,7 +63,7 @@ services:
 
   node5:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
     container_name: cloudweave-node5
     environment:

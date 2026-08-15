@@ -75,6 +75,7 @@ func TestEndToEnd_NodeFailureAndSelfHealing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to build PUT request: %v", err)
 	}
+	putReq.Header.Set("Authorization", "Bearer default-admin-key")
 
 	putResp, err := http.DefaultClient.Do(putReq)
 	if err != nil {
@@ -130,6 +131,7 @@ func TestEndToEnd_NodeFailureAndSelfHealing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to build GET request: %v", err)
 	}
+	getReq.Header.Set("Authorization", "Bearer default-admin-key")
 
 	getResp, err := http.DefaultClient.Do(getReq)
 	if err != nil {
