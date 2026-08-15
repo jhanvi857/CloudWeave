@@ -5,8 +5,30 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
+)
+
+var (
+	defaultTransport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          200,
+		MaxIdleConnsPerHost:   50,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	defaultPooledClient = &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: defaultTransport,
+	}
 )
 
 type Client struct {
@@ -15,8 +37,15 @@ type Client struct {
 }
 
 func NewClient(peerAddr string) *Client {
+	return NewClientWithHTTPClient(peerAddr, defaultPooledClient)
+}
+
+func NewClientWithHTTPClient(peerAddr string, httpClient *http.Client) *Client {
+	if httpClient == nil {
+		httpClient = defaultPooledClient
+	}
 	return &Client{
-		httpClient: &http.Client{Timeout: 5 * time.Second},
+		httpClient: httpClient,
 		peerAddr:   peerAddr,
 	}
 }
