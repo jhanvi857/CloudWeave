@@ -73,3 +73,61 @@ func TestMetadataStore_Delete(t *testing.T) {
 		t.Errorf("expected deleted file to not be found")
 	}
 }
+
+func TestMetadataStore_NamespacesAndMetadata(t *testing.T) {
+	store := NewStore()
+
+	m1 := Manifest{
+		Namespace:   "tenant-a",
+		FileID:      "report.pdf",
+		Size:        1024,
+		ContentType: "application/pdf",
+		Metadata: map[string]string{
+			"Author": "Alice",
+		},
+		ChunkIDs:       []string{"c1"},
+		ChunkLocations: map[string][]string{"c1": {"n1"}},
+	}
+	m2 := Manifest{
+		Namespace:   "tenant-b",
+		FileID:      "report.pdf",
+		Size:        2048,
+		ContentType: "text/plain",
+		Metadata: map[string]string{
+			"Author": "Bob",
+		},
+		ChunkIDs:       []string{"c2"},
+		ChunkLocations: map[string][]string{"c2": {"n2"}},
+	}
+
+	if err := store.RecordPlacement(m1); err != nil {
+		t.Fatalf("failed to record m1: %v", err)
+	}
+	if err := store.RecordPlacement(m2); err != nil {
+		t.Fatalf("failed to record m2: %v", err)
+	}
+
+	// LookupScoped tenant-a
+	gotA, foundA := store.LookupScoped("tenant-a", "report.pdf")
+	if !foundA || gotA.Size != 1024 || gotA.ContentType != "application/pdf" || gotA.Metadata["Author"] != "Alice" {
+		t.Errorf("mismatch for tenant-a: %+v", gotA)
+	}
+
+	// LookupScoped tenant-b
+	gotB, foundB := store.LookupScoped("tenant-b", "report.pdf")
+	if !foundB || gotB.Size != 2048 || gotB.ContentType != "text/plain" || gotB.Metadata["Author"] != "Bob" {
+		t.Errorf("mismatch for tenant-b: %+v", gotB)
+	}
+
+	// Delete tenant-a should not delete tenant-b
+	if !store.DeleteScoped("tenant-a", "report.pdf") {
+		t.Errorf("expected DeleteScoped tenant-a to succeed")
+	}
+	if _, found := store.LookupScoped("tenant-a", "report.pdf"); found {
+		t.Errorf("tenant-a object should be deleted")
+	}
+	if _, found := store.LookupScoped("tenant-b", "report.pdf"); !found {
+		t.Errorf("tenant-b object should still exist")
+	}
+}
+

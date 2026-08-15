@@ -24,18 +24,30 @@ func NewGarbageCollector(metaStore *metadata.Store, diskStore *storage.DiskStore
 
 // CollectGarbage scans all manifests to build an active chunk ID set (Mark),
 // then scans local disk chunks and deletes any unreferenced chunks (Sweep).
+// Active chunks are collected across ALL namespaces to ensure deletion activity in one namespace
+// never deletes chunks referenced by active manifests in another namespace.
 func (g *GarbageCollector) CollectGarbage() (int, error) {
+	return g.CollectGarbageForNamespace("")
+}
+
+// CollectGarbageForNamespace runs GC while ensuring active chunks across all namespaces are preserved.
+func (g *GarbageCollector) CollectGarbageForNamespace(targetNamespace string) (int, error) {
 	if g.metaStore == nil || g.diskStore == nil {
 		return 0, fmt.Errorf("garbage collector not properly initialized")
 	}
 
-	// 1. Mark Phase: Gather all active chunk IDs referenced across all manifests
+	// 1. Mark Phase: Gather all active chunk IDs referenced across ALL manifests in ALL namespaces
 	manifests := g.metaStore.GetAllManifests()
 	activeChunks := make(map[string]bool)
 
 	for _, manifest := range manifests {
 		for _, chunkID := range manifest.ChunkIDs {
 			activeChunks[chunkID] = true
+		}
+		for _, hist := range manifest.Versions {
+			for _, chunkID := range hist.ChunkIDs {
+				activeChunks[chunkID] = true
+			}
 		}
 	}
 

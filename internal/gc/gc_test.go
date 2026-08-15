@@ -56,3 +56,62 @@ func TestGarbageCollector_SweepOrphanChunks(t *testing.T) {
 		t.Errorf("expected orphan chunks chunk2 and chunk3 to be deleted")
 	}
 }
+
+func TestGarbageCollector_NamespaceIsolationSafety(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "gc_ns_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	diskStore, _ := storage.NewDiskStore(tempDir)
+	metaStore := metadata.NewStore()
+
+	sharedChunk := "shared_chunk_1"
+	nsAOnlyChunk := "nsA_chunk"
+	nsBOnlyChunk := "nsB_chunk"
+
+	_ = diskStore.Put(sharedChunk, []byte("shared content"))
+	_ = diskStore.Put(nsAOnlyChunk, []byte("nsA content"))
+	_ = diskStore.Put(nsBOnlyChunk, []byte("nsB content"))
+
+	// Manifest in tenant-a uses sharedChunk & nsAOnlyChunk
+	_ = metaStore.RecordPlacement(metadata.Manifest{
+		Namespace: "tenant-a",
+		FileID:    "fileA",
+		ChunkIDs:  []string{sharedChunk, nsAOnlyChunk},
+	})
+
+	// Manifest in tenant-b uses sharedChunk & nsBOnlyChunk
+	_ = metaStore.RecordPlacement(metadata.Manifest{
+		Namespace: "tenant-b",
+		FileID:    "fileB",
+		ChunkIDs:  []string{sharedChunk, nsBOnlyChunk},
+	})
+
+	gcEngine := NewGarbageCollector(metaStore, diskStore)
+
+	// Now delete tenant-a file
+	metaStore.DeleteScoped("tenant-a", "fileA")
+
+	// Run GC
+	deleted, err := gcEngine.CollectGarbageForNamespace("tenant-a")
+	if err != nil {
+		t.Fatalf("GC failed: %v", err)
+	}
+
+	if deleted != 1 {
+		t.Fatalf("expected exactly 1 chunk (nsAOnlyChunk) deleted, got %d", deleted)
+	}
+
+	if diskStore.Exists(nsAOnlyChunk) {
+		t.Errorf("nsAOnlyChunk should be deleted after fileA deletion")
+	}
+	if !diskStore.Exists(sharedChunk) {
+		t.Errorf("sharedChunk MUST NOT be deleted because tenant-b fileB still references it!")
+	}
+	if !diskStore.Exists(nsBOnlyChunk) {
+		t.Errorf("nsBOnlyChunk MUST remain on disk")
+	}
+}
+

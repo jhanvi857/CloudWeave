@@ -7,22 +7,27 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"cloudWeave/internal/auth"
 )
 
 type WALOpType string
 
 const (
-	OpRecordManifest   WALOpType = "RECORD_MANIFEST"
-	OpUpdateLocations  WALOpType = "UPDATE_LOCATIONS"
-	OpDeleteManifest   WALOpType = "DELETE_MANIFEST"
+	OpRecordManifest  WALOpType = "RECORD_MANIFEST"
+	OpUpdateLocations WALOpType = "UPDATE_LOCATIONS"
+	OpDeleteManifest  WALOpType = "DELETE_MANIFEST"
+	OpRecordKey       WALOpType = "RECORD_KEY"
+	OpDeleteKey       WALOpType = "DELETE_KEY"
 )
 
 type WALRecord struct {
-	Op       WALOpType `json:"op"`
-	Manifest Manifest  `json:"manifest,omitempty"`
-	ChunkID  string    `json:"chunk_id,omitempty"`
-	Locations []string `json:"locations,omitempty"`
-	FileID   string    `json:"file_id,omitempty"`
+	Op         WALOpType       `json:"op"`
+	Manifest   Manifest        `json:"manifest,omitempty"`
+	ChunkID    string          `json:"chunk_id,omitempty"`
+	Locations  []string        `json:"locations,omitempty"`
+	FileID     string          `json:"file_id,omitempty"`
+	Credential auth.Credential `json:"credential,omitempty"`
 }
 
 type WAL struct {
@@ -71,7 +76,12 @@ func (w *WAL) Close() error {
 	return w.file.Close()
 }
 
-func ReplayWAL(walPath string, store *Store) error {
+func ReplayWAL(walPath string, store *Store, authOpts ...*auth.Authenticator) error {
+	var authenticator *auth.Authenticator
+	if len(authOpts) > 0 && authOpts[0] != nil {
+		authenticator = authOpts[0]
+	}
+
 	f, err := os.Open(walPath)
 	if os.IsNotExist(err) {
 		return nil // No WAL file exists yet
@@ -97,6 +107,14 @@ func ReplayWAL(walPath string, store *Store) error {
 			store.UpdateChunkLocations(rec.ChunkID, rec.Locations)
 		case OpDeleteManifest:
 			store.Delete(rec.FileID)
+		case OpRecordKey:
+			if authenticator != nil {
+				authenticator.AddCredentialByHash(rec.Credential)
+			}
+		case OpDeleteKey:
+			if authenticator != nil {
+				authenticator.RevokeCredentialByHash(rec.Credential.KeyHash)
+			}
 		}
 	}
 

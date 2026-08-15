@@ -3,6 +3,8 @@ package metadata
 import (
 	"path/filepath"
 	"testing"
+
+	"cloudWeave/internal/auth"
 )
 
 func TestWAL_PersistenceAndReplay(t *testing.T) {
@@ -62,3 +64,43 @@ func TestWAL_PersistenceAndReplay(t *testing.T) {
 		t.Errorf("updated chunk locations not restored correctly from WAL: got %v", locs101)
 	}
 }
+
+func TestWAL_CredentialHashedPersistenceAndReplay(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "keys.wal")
+
+	wal, err := OpenWAL(walPath)
+	if err != nil {
+		t.Fatalf("failed to open WAL: %v", err)
+	}
+
+	auth1 := auth.NewDefaultAuthenticator()
+	rawKey := "secret-dynamic-key-123"
+	cred := auth1.AddRawKey(rawKey, []string{"tenant-wal"}, false)
+
+	// Write Key WAL record (storing SHA-256 hash only)
+	if err := wal.WriteRecord(WALRecord{
+		Op:         OpRecordKey,
+		Credential: cred,
+	}); err != nil {
+		t.Fatalf("WriteRecord failed: %v", err)
+	}
+	wal.Close()
+
+	// Replay WAL into fresh authenticator
+	auth2 := auth.NewDefaultAuthenticator()
+	store := NewStore()
+	if err := ReplayWAL(walPath, store, auth2); err != nil {
+		t.Fatalf("ReplayWAL failed: %v", err)
+	}
+
+	// Validate with rawKey against auth2
+	validated, ok := auth2.ValidateKey(rawKey)
+	if !ok || validated == nil {
+		t.Fatalf("expected rawKey to validate after WAL replay")
+	}
+	if !validated.CanAccessNamespace("tenant-wal") {
+		t.Errorf("expected tenant-wal permission after WAL replay")
+	}
+}
+
