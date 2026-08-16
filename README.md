@@ -1,6 +1,6 @@
 # CloudWeave
 
-CloudWeave is a production-ready, multi-tenant distributed object storage system written in Go. Drawing architectural design principles from Amazon DynamoDB, S3, and Apache Cassandra, CloudWeave implements content-addressable streaming chunking, consistent hashing with virtual nodes, configurable N/W/R quorum consensus, automated heartbeat failure detection, Write-Ahead Logging (WAL) durability, vector clocks, Reed-Solomon erasure coding, Prometheus metrics, mark-and-sweep garbage collection, HTTP byte-range requests, Raft metadata consensus, multi-tenant namespace isolation, SHA-256 hashed API key authentication, dynamic cluster membership (join/leave), end-to-end TLS encryption, and an importable Go Client SDK with automatic node discovery.
+CloudWeave is a production-ready, multi-tenant distributed object storage system written in Go. Drawing architectural design principles from Amazon DynamoDB, S3, and Apache Cassandra, CloudWeave implements an Amazon S3-compatible protocol surface (AWS SigV4 authentication, bucket operations, ListObjectsV2, multipart uploads), content-addressable streaming chunking, consistent hashing with virtual nodes, configurable N/W/R quorum consensus, automated heartbeat failure detection, Write-Ahead Logging (WAL) durability, vector clocks, Reed-Solomon erasure coding, Prometheus metrics, mark-and-sweep garbage collection, HTTP byte-range requests, Raft metadata consensus, multi-tenant namespace isolation, SHA-256 hashed API key authentication, dynamic cluster membership (join/leave), end-to-end TLS encryption, an importable Go Client SDK, a dedicated CLI binary (`cweave`), and zero-knowledge convergent client-side encryption.
 
 ---
 
@@ -16,8 +16,11 @@ CloudWeave is a production-ready, multi-tenant distributed object storage system
 
 ```mermaid
 flowchart TD
-    Client["Client (Go SDK / HTTP / CLI)"] -->|HTTPS + Bearer Key| API["API Router & Auth Middleware"]
-    API -->|Validate Key Hash| Auth["SHA-256 Auth Engine"]
+    Client["Native Client (Go SDK / HTTP / CLI)"] -->|HTTPS + Bearer Key| API["API Router & Auth Middleware"]
+    S3Client["AWS CLI / boto3 / S3 Tools"] -->|S3 Protocol + SigV4 Auth| S3API["S3 Compatibility Layer (internal/s3)"]
+    S3API -->|SigV4 Auth Check| Auth["SHA-256 Auth Engine"]
+    S3API -->|Bucket & Object Ops| API
+    API -->|Validate Key Hash| Auth
     API -->|SplitStream / Reassemble| Chunker["Streaming Chunker (SHA-256)"]
     API -->|Causal Versioning| VC["Vector Clock Engine"]
     API -->|Prometheus Metrics| Metrics["Metrics Exporter (/metrics)"]
@@ -125,6 +128,9 @@ flowchart TD
 
 21. **Content-Defined Chunking & Deduplication (`internal/chunk`)**
     Implements FastCDC / Gear hash rolling content-defined chunking. Identical content blocks share identical SHA-256 chunk IDs across different files, eliminating duplicate block storage on disk.
+
+22. **Amazon S3 Compatibility Layer & AWS SigV4 Auth (`internal/s3`)**
+    Provides a second API surface mounted alongside the native CloudWeave API. Speaks full Amazon S3 protocol (`PUT /{bucket}/{key}`, `GET /{bucket}/{key}`, `HEAD /{bucket}/{key}`, `DELETE /{bucket}/{key}`, `PUT /{bucket}`, `GET /` ListBuckets, `DELETE /{bucket}`, `GET /{bucket}?list-type=2` ListObjectsV2 with prefix/delimiter/continuation tokens, and multipart uploads). Authenticates via AWS Signature Version 4 (SigV4) using issued CloudWeave API keys. Unmodified tools like the AWS CLI, `boto3`, Cyberduck, `rclone`, and `restic` can point directly to CloudWeave via `--endpoint-url`.
 
 ---
 
@@ -260,6 +266,57 @@ curl -X GET http://localhost:8080/files/tenant1/documents/hello.txt \
 ```bash
 curl -X GET http://localhost:8080/cluster/nodes \
   -H "Authorization: Bearer cw_key_..."
+```
+
+---
+
+### 5. Amazon S3 Protocol & AWS CLI Verification
+
+#### Configure AWS CLI Credentials:
+```bash
+export AWS_ACCESS_KEY_ID="cw_key_..."
+export AWS_SECRET_ACCESS_KEY="cw_key_..."
+export AWS_DEFAULT_REGION="us-east-1"
+```
+
+#### Bucket & Object Operations via AWS CLI:
+```bash
+# 1. Create S3 Bucket
+aws s3 mb s3://my-bucket --endpoint-url http://localhost:8080
+
+# 2. Upload Object
+aws s3 cp document.txt s3://my-bucket/ --endpoint-url http://localhost:8080
+
+# 3. List Objects (ListObjectsV2)
+aws s3 ls s3://my-bucket/ --endpoint-url http://localhost:8080
+
+# 4. Download Object
+aws s3 cp s3://my-bucket/document.txt out.txt --endpoint-url http://localhost:8080
+
+# 5. Multipart Upload (for large files >8MB)
+aws s3 cp largefile.bin s3://my-bucket/ --endpoint-url http://localhost:8080
+
+# 6. Delete Object
+aws s3 rm s3://my-bucket/document.txt --endpoint-url http://localhost:8080
+```
+
+#### Python `boto3` SDK Integration:
+```python
+import boto3
+
+s3 = boto3.client(
+    's3',
+    endpoint_url='http://localhost:8080',
+    aws_access_key_id='cw_key_...',
+    aws_secret_access_key='cw_key_...',
+    region_name='us-east-1'
+)
+
+# Create bucket, PutObject, GetObject, ListObjectsV2
+s3.create_bucket(Bucket='boto3-bucket')
+s3.put_object(Bucket='boto3-bucket', Key='data.txt', Body=b'CloudWeave S3 API')
+res = s3.list_objects_v2(Bucket='boto3-bucket')
+content = s3.get_object(Bucket='boto3-bucket', Key='data.txt')['Body'].read()
 ```
 
 ---
