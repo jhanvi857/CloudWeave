@@ -3,13 +3,17 @@ package s3
 import (
 	"bytes"
 	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"cloudWeave/internal/auth"
@@ -59,7 +63,7 @@ func computeETag(data []byte) string {
 	return fmt.Sprintf(`"%s"`, hex.EncodeToString(h[:]))
 }
 
-func (s *S3Handler) authenticate(r *http.Request, bucket string) (*auth.Credential, bool, int, string, string) {
+func (s *S3Handler) authenticate(r *http.Request, bucket string) (*SigV4AuthResult, bool, int, string, string) {
 	if s.auth == nil {
 		return nil, true, 200, "", ""
 	}
@@ -79,7 +83,7 @@ func (s *S3Handler) authenticate(r *http.Request, bucket string) (*auth.Credenti
 		if bucket != "" && !sigRes.Credential.CanAccessNamespace(bucket) {
 			return nil, false, http.StatusForbidden, "AccessDenied", "Access Denied"
 		}
-		return sigRes.Credential, true, 200, "", ""
+		return sigRes, true, 200, "", ""
 	}
 
 	// Native or Bearer key authentication fallback
@@ -97,7 +101,7 @@ func (s *S3Handler) authenticate(r *http.Request, bucket string) (*auth.Credenti
 		return nil, false, http.StatusForbidden, "AccessDenied", "Access Denied"
 	}
 
-	return cred, true, 200, "", ""
+	return &SigV4AuthResult{Credential: cred}, true, 200, "", ""
 }
 
 // ServeHTTP dispatches incoming S3 requests to bucket or object handlers.
@@ -317,49 +321,83 @@ func (s *S3Handler) handleListObjectsV2(w http.ResponseWriter, r *http.Request, 
 }
 
 func (s *S3Handler) handlePutObject(w http.ResponseWriter, r *http.Request, bucket, key string) {
-	_, ok, status, code, msg := s.authenticate(r, bucket)
+	sigRes, ok, status, code, msg := s.authenticate(r, bucket)
 	if !ok {
 		WriteError(w, status, code, msg, "/"+bucket+"/"+key)
 		return
 	}
 
 	_ = s.metaStore.CreateBucket(bucket)
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 
-	bodyBytes, err := io.ReadAll(r.Body)
+	var reader io.Reader = r.Body
+	if r.Body == nil {
+		reader = bytes.NewReader(nil)
+	}
+
+	contentEncoding := r.Header.Get("Content-Encoding")
+	expectedHash := r.Header.Get("X-Amz-Content-Sha256")
+
+	if strings.Contains(contentEncoding, "aws-chunked") || strings.HasPrefix(expectedHash, "STREAMING-") {
+		chunkedReader := NewAWSChunkedReader(reader)
+		if sigRes != nil && len(sigRes.SigningKey) > 0 {
+			chunkedReader.SetSignatureValidator(sigRes.SigningKey, sigRes.SeedSignature, sigRes.AmzDate, sigRes.Scope)
+		}
+		reader = chunkedReader
+	}
+
+	var shaHasher hash.Hash
+	if expectedHash != "" && expectedHash != "UNSIGNED-PAYLOAD" && !strings.HasPrefix(expectedHash, "STREAMING-") {
+		shaHasher = sha256.New()
+		reader = io.TeeReader(reader, shaHasher)
+	}
+	md5Hasher := md5.New()
+	reader = io.TeeReader(reader, md5Hasher)
+
+	var chunkIDs []string
+	chunkLocations := make(map[string][]string)
+	var mu sync.Mutex
+
+	totalBytes, chunkIDs, err := chunk.SplitStream(reader, s.chunkSize, func(c chunk.Chunk) error {
+		locs, err := s.engine.PutChunk(c.ID, c.Data)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		chunkLocations[c.ID] = locs
+		mu.Unlock()
+		return nil
+	})
+
 	if err != nil {
-		WriteError(w, http.StatusBadRequest, "IncompleteBody", "Failed to read request body", "/"+bucket+"/"+key)
+		if errors.Is(err, ErrChunkSignatureMismatch) || strings.Contains(err.Error(), "SignatureDoesNotMatch") {
+			WriteError(w, http.StatusForbidden, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided.", "/"+bucket+"/"+key)
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, "InternalError", fmt.Sprintf("Failed to store object stream: %v", err), "/"+bucket+"/"+key)
 		return
 	}
-	defer r.Body.Close()
 
-	etag := computeETag(bodyBytes)
+	if shaHasher != nil {
+		actualHash := hex.EncodeToString(shaHasher.Sum(nil))
+		if !strings.EqualFold(actualHash, expectedHash) {
+			WriteError(w, http.StatusBadRequest, "BadDigest", "The Sha256 signature calculated does not match the provided SHA-256 payload hash.", "/"+bucket+"/"+key)
+			return
+		}
+	}
+
+	etag := fmt.Sprintf(`"%s"`, hex.EncodeToString(md5Hasher.Sum(nil)))
 	contentType := r.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
-	chunks, err := chunk.Split(bodyBytes, s.chunkSize)
-	if err != nil && len(bodyBytes) > 0 {
-		WriteError(w, http.StatusInternalServerError, "InternalError", fmt.Sprintf("Failed to chunk body: %v", err), "/"+bucket+"/"+key)
-		return
-	}
-	var chunkIDs []string
-	chunkLocations := make(map[string][]string)
-
-	for _, c := range chunks {
-		locs, err := s.engine.PutChunk(c.ID, c.Data)
-		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "InternalError", fmt.Sprintf("Failed to store chunk %s: %v", c.ID, err), "/"+bucket+"/"+key)
-			return
-		}
-		chunkIDs = append(chunkIDs, c.ID)
-		chunkLocations[c.ID] = locs
-	}
-
 	manifest := metadata.Manifest{
 		Namespace:      bucket,
 		FileID:         key,
-		Size:           int64(len(bodyBytes)),
+		Size:           totalBytes,
 		ChunkIDs:       chunkIDs,
 		ChunkLocations: chunkLocations,
 		ContentType:    contentType,
@@ -389,24 +427,12 @@ func (s *S3Handler) handleGetObject(w http.ResponseWriter, r *http.Request, buck
 		return
 	}
 
-	var buf bytes.Buffer
-	for _, chunkID := range manifest.ChunkIDs {
-		locs := manifest.ChunkLocations[chunkID]
-		data, err := s.engine.GetChunk(chunkID, locs)
-		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "InternalError", fmt.Sprintf("Failed to retrieve chunk %s: %v", chunkID, err), "/"+bucket+"/"+key)
-			return
-		}
-		buf.Write(data)
-	}
-
-	fullData := buf.Bytes()
-	etag := computeETag(fullData)
 	contentType := manifest.ContentType
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
+	etag := computeETag([]byte(manifest.FileID))
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
@@ -418,18 +444,49 @@ func (s *S3Handler) handleGetObject(w http.ResponseWriter, r *http.Request, buck
 		parts := strings.Split(rangeStr, "-")
 		if len(parts) == 2 {
 			start, _ := strconv.ParseInt(parts[0], 10, 64)
-			endVal := int64(len(fullData)) - 1
+			endVal := manifest.Size - 1
 			if parts[1] != "" {
 				if parsedEnd, err := strconv.ParseInt(parts[1], 10, 64); err == nil && parsedEnd < endVal {
 					endVal = parsedEnd
 				}
 			}
-			if start >= 0 && start <= endVal && start < int64(len(fullData)) {
-				subData := fullData[start : endVal+1]
-				w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, endVal, len(fullData)))
-				w.Header().Set("Content-Length", fmt.Sprintf("%d", len(subData)))
+			if start >= 0 && start <= endVal && start < manifest.Size {
+				subLen := endVal - start + 1
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, endVal, manifest.Size))
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", subLen))
 				w.WriteHeader(http.StatusPartialContent)
-				w.Write(subData)
+
+				var currentOffset int64 = 0
+				for _, chunkID := range manifest.ChunkIDs {
+					locs := manifest.ChunkLocations[chunkID]
+					data, err := s.engine.GetChunk(chunkID, locs)
+					if err != nil {
+						return
+					}
+					chunkLen := int64(len(data))
+					chunkStart := currentOffset
+					chunkEnd := currentOffset + chunkLen - 1
+
+					if chunkEnd >= start && chunkStart <= endVal {
+						sliceStart := int64(0)
+						if start > chunkStart {
+							sliceStart = start - chunkStart
+						}
+						sliceEnd := chunkLen
+						if endVal < chunkEnd {
+							sliceEnd = endVal - chunkStart + 1
+						}
+						if sliceStart < sliceEnd && sliceStart < chunkLen {
+							w.Write(data[sliceStart:sliceEnd])
+						}
+					}
+
+					currentOffset += chunkLen
+					if currentOffset > endVal {
+						break
+					}
+				}
+				metrics.IncFileDownloads()
 				return
 			}
 		}
@@ -437,9 +494,17 @@ func (s *S3Handler) handleGetObject(w http.ResponseWriter, r *http.Request, buck
 
 	metrics.IncFileDownloads()
 
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fullData)))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", manifest.Size))
 	w.WriteHeader(http.StatusOK)
-	w.Write(fullData)
+
+	for _, chunkID := range manifest.ChunkIDs {
+		locs := manifest.ChunkLocations[chunkID]
+		data, err := s.engine.GetChunk(chunkID, locs)
+		if err != nil {
+			return
+		}
+		w.Write(data)
+	}
 }
 
 func (s *S3Handler) handleHeadObject(w http.ResponseWriter, r *http.Request, bucket, key string) {
@@ -500,7 +565,7 @@ func (s *S3Handler) handleCreateMultipartUpload(w http.ResponseWriter, r *http.R
 }
 
 func (s *S3Handler) handleUploadPart(w http.ResponseWriter, r *http.Request, bucket, key, uploadID, partNumberStr string) {
-	_, ok, status, code, msg := s.authenticate(r, bucket)
+	sigRes, ok, status, code, msg := s.authenticate(r, bucket)
 	if !ok {
 		WriteError(w, status, code, msg, "/"+bucket+"/"+key)
 		return
@@ -512,33 +577,69 @@ func (s *S3Handler) handleUploadPart(w http.ResponseWriter, r *http.Request, buc
 		return
 	}
 
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, "IncompleteBody", "Failed to read part body", "/"+bucket+"/"+key)
-		return
+	if r.Body != nil {
+		defer r.Body.Close()
 	}
-	defer r.Body.Close()
 
-	etag := computeETag(bodyBytes)
-	chunks, err := chunk.Split(bodyBytes, s.chunkSize)
-	if err != nil && len(bodyBytes) > 0 {
-		WriteError(w, http.StatusInternalServerError, "InternalError", fmt.Sprintf("Failed to chunk part body: %v", err), "/"+bucket+"/"+key)
-		return
+	var reader io.Reader = r.Body
+	if r.Body == nil {
+		reader = bytes.NewReader(nil)
 	}
+
+	contentEncoding := r.Header.Get("Content-Encoding")
+	expectedHash := r.Header.Get("X-Amz-Content-Sha256")
+
+	if strings.Contains(contentEncoding, "aws-chunked") || strings.HasPrefix(expectedHash, "STREAMING-") {
+		chunkedReader := NewAWSChunkedReader(reader)
+		if sigRes != nil && len(sigRes.SigningKey) > 0 {
+			chunkedReader.SetSignatureValidator(sigRes.SigningKey, sigRes.SeedSignature, sigRes.AmzDate, sigRes.Scope)
+		}
+		reader = chunkedReader
+	}
+
+	var shaHasher hash.Hash
+	if expectedHash != "" && expectedHash != "UNSIGNED-PAYLOAD" && !strings.HasPrefix(expectedHash, "STREAMING-") {
+		shaHasher = sha256.New()
+		reader = io.TeeReader(reader, shaHasher)
+	}
+	md5Hasher := md5.New()
+	reader = io.TeeReader(reader, md5Hasher)
+
 	var chunkIDs []string
 	chunkLocations := make(map[string][]string)
+	var mu sync.Mutex
 
-	for _, c := range chunks {
+	totalBytes, chunkIDs, err := chunk.SplitStream(reader, s.chunkSize, func(c chunk.Chunk) error {
 		locs, err := s.engine.PutChunk(c.ID, c.Data)
 		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "InternalError", fmt.Sprintf("Failed to store chunk %s: %v", c.ID, err), "/"+bucket+"/"+key)
+			return err
+		}
+		mu.Lock()
+		chunkLocations[c.ID] = locs
+		mu.Unlock()
+		return nil
+	})
+
+	if err != nil {
+		if errors.Is(err, ErrChunkSignatureMismatch) || strings.Contains(err.Error(), "SignatureDoesNotMatch") {
+			WriteError(w, http.StatusForbidden, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided.", "/"+bucket+"/"+key)
 			return
 		}
-		chunkIDs = append(chunkIDs, c.ID)
-		chunkLocations[c.ID] = locs
+		WriteError(w, http.StatusInternalServerError, "InternalError", fmt.Sprintf("Failed to store part stream: %v", err), "/"+bucket+"/"+key)
+		return
 	}
 
-	if err := s.mpStore.AddPart(uploadID, partNum, etag, int64(len(bodyBytes)), chunkIDs, chunkLocations); err != nil {
+	if shaHasher != nil {
+		actualHash := hex.EncodeToString(shaHasher.Sum(nil))
+		if !strings.EqualFold(actualHash, expectedHash) {
+			WriteError(w, http.StatusBadRequest, "BadDigest", "The Sha256 signature calculated does not match the provided SHA-256 payload hash.", "/"+bucket+"/"+key)
+			return
+		}
+	}
+
+	etag := fmt.Sprintf(`"%s"`, hex.EncodeToString(md5Hasher.Sum(nil)))
+
+	if err := s.mpStore.AddPart(uploadID, partNum, etag, totalBytes, chunkIDs, chunkLocations); err != nil {
 		WriteError(w, http.StatusNotFound, "NoSuchUpload", "The specified multipart upload does not exist.", "/"+bucket+"/"+key)
 		return
 	}

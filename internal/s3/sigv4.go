@@ -7,7 +7,6 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -18,9 +17,13 @@ import (
 
 // SigV4AuthResult holds the result of a SigV4 verification.
 type SigV4AuthResult struct {
-	AccessKeyID string
-	Credential  *auth.Credential
-	SecretKey   string
+	AccessKeyID   string
+	Credential    *auth.Credential
+	SecretKey     string
+	SigningKey    []byte
+	SeedSignature string
+	AmzDate       string
+	Scope         string
 }
 
 // VerifySigV4 verifies AWS Signature Version 4 on an incoming HTTP request.
@@ -106,16 +109,8 @@ func VerifySigV4(r *http.Request, authenticator *auth.Authenticator) (*SigV4Auth
 		payloadHash = r.URL.Query().Get("X-Amz-Content-Sha256")
 	}
 
-	if payloadHash == "" || payloadHash == "UNSIGNED-PAYLOAD" {
-		if payloadHash == "" {
-			bodyBytes, err := io.ReadAll(r.Body)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read body: %w", err)
-			}
-			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-			h := sha256.Sum256(bodyBytes)
-			payloadHash = hex.EncodeToString(h[:])
-		}
+	if payloadHash == "" {
+		payloadHash = "UNSIGNED-PAYLOAD"
 	}
 
 	// 2. Canonical URI
@@ -161,9 +156,13 @@ func VerifySigV4(r *http.Request, authenticator *auth.Authenticator) (*SigV4Auth
 	}
 
 	return &SigV4AuthResult{
-		AccessKeyID: accessKeyID,
-		Credential:  cred,
-		SecretKey:   secretKey,
+		AccessKeyID:   accessKeyID,
+		Credential:    cred,
+		SecretKey:     secretKey,
+		SigningKey:    signingKey,
+		SeedSignature: signature,
+		AmzDate:       amzDate,
+		Scope:         scope,
 	}, nil
 }
 
