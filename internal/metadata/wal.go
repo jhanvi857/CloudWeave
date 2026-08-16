@@ -19,6 +19,8 @@ const (
 	OpDeleteManifest  WALOpType = "DELETE_MANIFEST"
 	OpRecordKey       WALOpType = "RECORD_KEY"
 	OpDeleteKey       WALOpType = "DELETE_KEY"
+	OpCreateBucket    WALOpType = "CREATE_BUCKET"
+	OpDeleteBucket    WALOpType = "DELETE_BUCKET"
 )
 
 type WALRecord struct {
@@ -28,6 +30,7 @@ type WALRecord struct {
 	Locations  []string        `json:"locations,omitempty"`
 	FileID     string          `json:"file_id,omitempty"`
 	Credential auth.Credential `json:"credential,omitempty"`
+	BucketName string          `json:"bucket_name,omitempty"`
 }
 
 type WAL struct {
@@ -115,6 +118,10 @@ func ReplayWAL(walPath string, store *Store, authOpts ...*auth.Authenticator) er
 			if authenticator != nil {
 				authenticator.RevokeCredentialByHash(rec.Credential.KeyHash)
 			}
+		case OpCreateBucket:
+			_ = store.CreateBucket(rec.BucketName)
+		case OpDeleteBucket:
+			_ = store.DeleteBucket(rec.BucketName)
 		}
 	}
 
