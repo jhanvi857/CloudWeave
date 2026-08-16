@@ -3,7 +3,7 @@ import boto3
 # Initialize boto3 client with CloudWeave endpoint
 s3 = boto3.client(
     's3',
-    endpoint_url='http://localhost:8080',
+    endpoint_url='http://localhost:9000',
     aws_access_key_id='default-admin-key',
     aws_secret_access_key='default-admin-key',
     region_name='us-east-1'
