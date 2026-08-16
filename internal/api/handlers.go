@@ -28,6 +28,7 @@ const DefaultChunkSize = 1024 * 1024 // 1 MB default chunk size
 // PeerManager abstracts cluster node membership for peer broadcasts and dynamic joins/leaves.
 type PeerManager interface {
 	GetActiveNodes() []string
+	GetAllNodes() []string
 	AddNode(addr string)
 	RemoveNode(addr string)
 }
@@ -94,6 +95,18 @@ func (a *APIHandler) GetWAL() *metadata.WAL {
 	return a.wal
 }
 
+func (a *APIHandler) GetMetaStore() *metadata.Store {
+	return a.metaStore
+}
+
+func (a *APIHandler) GetEngine() ChunkStorageEngine {
+	return a.engine
+}
+
+func (a *APIHandler) GetChunkSize() int {
+	return a.chunkSize
+}
+
 func (a *APIHandler) SetAuthenticator(authenticator *auth.Authenticator) {
 	if authenticator != nil {
 		a.auth = authenticator
@@ -114,6 +127,17 @@ func (a *APIHandler) GetLocalAddr() string {
 }
 
 func (a *APIHandler) HandleFiles(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key, X-Namespace")
+
+	log.Printf("[HandleFiles] Incoming request: Method=%s, Path=%s, Auth=%s", r.Method, r.URL.Path, r.Header.Get("Authorization"))
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	if a.auth != nil {
 		key := auth.ExtractKey(r)
 		cred, ok := a.auth.ValidateKey(key)
@@ -688,6 +712,9 @@ func (a *APIHandler) HandleInternalLeave(w http.ResponseWriter, r *http.Request)
 // HandleDashboard serves the web dashboard single-page interface.
 func (a *APIHandler) HandleDashboard(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 	w.WriteHeader(http.StatusOK)
 	w.Write(DashboardHTML)
 }
@@ -697,24 +724,58 @@ func (a *APIHandler) HandleClusterStatus(w http.ResponseWriter, r *http.Request)
 	type NodeInfo struct {
 		Addr    string `json:"addr"`
 		IsLocal bool   `json:"is_local"`
+		IsAlive bool   `json:"is_alive"`
 	}
 
 	var activeNodes []string
+	var allConfigured []string
+
 	if a.peerMgr != nil {
 		activeNodes = a.peerMgr.GetActiveNodes()
+		allConfigured = a.peerMgr.GetAllNodes()
 	}
-	if len(activeNodes) == 0 && a.localAddr != "" {
+	if len(allConfigured) == 0 && a.localAddr != "" {
+		allConfigured = []string{a.localAddr}
 		activeNodes = []string{a.localAddr}
+	}
+
+	activeSet := make(map[string]bool)
+	for _, addr := range activeNodes {
+		activeSet[addr] = true
 	}
 
 	var allNodes []NodeInfo
 	seen := make(map[string]bool)
-	for _, addr := range activeNodes {
+	for _, addr := range allConfigured {
 		if addr != "" && !seen[addr] {
 			seen[addr] = true
 			allNodes = append(allNodes, NodeInfo{
 				Addr:    addr,
 				IsLocal: addr == a.localAddr,
+				IsAlive: activeSet[addr],
+			})
+		}
+	}
+
+	type StoredObject struct {
+		FileID     string `json:"file_id"`
+		Namespace  string `json:"namespace"`
+		Size       int64  `json:"size"`
+		ChunkCount int    `json:"chunk_count"`
+	}
+
+	var storedObjects []StoredObject
+	var totalBytes int64
+
+	if a.metaStore != nil {
+		allManifests := a.metaStore.GetAllManifests()
+		for _, m := range allManifests {
+			totalBytes += m.Size
+			storedObjects = append(storedObjects, StoredObject{
+				FileID:     m.FileID,
+				Namespace:  m.Namespace,
+				Size:       m.Size,
+				ChunkCount: len(m.ChunkIDs),
 			})
 		}
 	}
@@ -725,6 +786,9 @@ func (a *APIHandler) HandleClusterStatus(w http.ResponseWriter, r *http.Request)
 		"file_uploads_total":    atomic.LoadUint64(&metrics.DefaultMetrics.FileUploadsTotal),
 		"file_downloads_total":  atomic.LoadUint64(&metrics.DefaultMetrics.FileDownloadsTotal),
 		"repaired_chunks_total": atomic.LoadUint64(&metrics.DefaultMetrics.RepairedChunksTotal),
+		"total_files_stored":   len(storedObjects),
+		"total_bytes_stored":   totalBytes,
+		"stored_objects":       storedObjects,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
