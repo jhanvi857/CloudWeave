@@ -7,12 +7,13 @@ services:
       dockerfile: Dockerfile
     container_name: cloudweave-node1
     environment:
-      - CLOUDWEAVE_PORT=8080
+      - CLOUDWEAVE_PORT=9000
       - CLOUDWEAVE_DATA=/data
-      - CLOUDWEAVE_PEERS=http://node2:8080,http://node3:8080,http://node4:8080,http://node5:8080
+      - CLOUDWEAVE_PEERS=http://node2:9000,http://node3:9000,http://node4:9000,http://node5:9000
       - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-}
+    mem_limit: 256m
     ports:
-      - "8080:8080"
+      - "9000:9000"
     volumes:
       - node1_data:/data
 
@@ -22,12 +23,13 @@ services:
       dockerfile: Dockerfile
     container_name: cloudweave-node2
     environment:
-      - CLOUDWEAVE_PORT=8080
+      - CLOUDWEAVE_PORT=9000
       - CLOUDWEAVE_DATA=/data
-      - CLOUDWEAVE_PEERS=http://node1:8080,http://node3:8080,http://node4:8080,http://node5:8080
+      - CLOUDWEAVE_PEERS=http://node1:9000,http://node3:9000,http://node4:9000,http://node5:9000
       - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-}
+    mem_limit: 256m
     ports:
-      - "8081:8080"
+      - "9001:9000"
     volumes:
       - node2_data:/data
 
@@ -37,12 +39,13 @@ services:
       dockerfile: Dockerfile
     container_name: cloudweave-node3
     environment:
-      - CLOUDWEAVE_PORT=8080
+      - CLOUDWEAVE_PORT=9000
       - CLOUDWEAVE_DATA=/data
-      - CLOUDWEAVE_PEERS=http://node1:8080,http://node2:8080,http://node4:8080,http://node5:8080
+      - CLOUDWEAVE_PEERS=http://node1:9000,http://node2:9000,http://node4:9000,http://node5:9000
       - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-}
+    mem_limit: 256m
     ports:
-      - "8082:8080"
+      - "9002:9000"
     volumes:
       - node3_data:/data
 
@@ -52,12 +55,13 @@ services:
       dockerfile: Dockerfile
     container_name: cloudweave-node4
     environment:
-      - CLOUDWEAVE_PORT=8080
+      - CLOUDWEAVE_PORT=9000
       - CLOUDWEAVE_DATA=/data
-      - CLOUDWEAVE_PEERS=http://node1:8080,http://node2:8080,http://node3:8080,http://node5:8080
+      - CLOUDWEAVE_PEERS=http://node1:9000,http://node2:9000,http://node3:9000,http://node5:9000
       - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-}
+    mem_limit: 256m
     ports:
-      - "8083:8080"
+      - "9003:9000"
     volumes:
       - node4_data:/data
 
@@ -67,12 +71,13 @@ services:
       dockerfile: Dockerfile
     container_name: cloudweave-node5
     environment:
-      - CLOUDWEAVE_PORT=8080
+      - CLOUDWEAVE_PORT=9000
       - CLOUDWEAVE_DATA=/data
-      - CLOUDWEAVE_PEERS=http://node1:8080,http://node2:8080,http://node3:8080,http://node4:8080
+      - CLOUDWEAVE_PEERS=http://node1:9000,http://node2:9000,http://node3:9000,http://node4:9000
       - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-}
+    mem_limit: 256m
     ports:
-      - "8084:8080"
+      - "9004:9000"
     volumes:
       - node5_data:/data
 
