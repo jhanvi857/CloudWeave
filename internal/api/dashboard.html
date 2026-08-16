@@ -3,44 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CloudWeave Distributed Storage Cluster</title>
+    <title>CloudWeave Cluster Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-dark: #090d16;
-            --card-bg: rgba(18, 26, 44, 0.7);
-            --card-border: rgba(255, 255, 255, 0.08);
-            --primary: #3b82f6;
-            --primary-glow: rgba(59, 130, 246, 0.35);
-            --accent: #8b5cf6;
-            --success: #10b981;
+            --bg: #0a0a0a;
+            --panel: #121212;
+            --border: #262626;
+            --orange: #ff6600;
+            --orange-hover: #ff771a;
+            --text: #f0f0f0;
+            --text-muted: #888888;
+            --success: #22c55e;
             --danger: #ef4444;
             --warning: #f59e0b;
-            --text-main: #f3f4f6;
-            --text-muted: #9ca3af;
         }
 
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: 'Inter', -apple-system, sans-serif;
         }
 
         body {
-            background-color: var(--bg-dark);
-            background-image: 
-                radial-gradient(circle at 15% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 40%),
-                radial-gradient(circle at 85% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 40%);
-            color: var(--text-main);
+            background-color: var(--bg);
+            color: var(--text);
             min-height: 100vh;
-            padding: 2rem;
+            padding: 1.5rem;
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1150px;
             margin: 0 auto;
         }
 
@@ -48,9 +44,11 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 2.5rem;
-            padding-bottom: 1.5rem;
-            border-bottom: 1px solid var(--card-border);
+            padding-bottom: 1.25rem;
+            margin-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+            gap: 1rem;
         }
 
         .brand {
@@ -59,110 +57,132 @@
             gap: 0.75rem;
         }
 
-        .logo-icon {
-            width: 38px;
-            height: 38px;
-            background: linear-gradient(135deg, var(--primary), var(--accent));
-            border-radius: 10px;
+        .logo-box {
+            background: var(--orange);
+            color: #000000;
+            font-weight: 800;
+            font-size: 1.1rem;
+            width: 34px;
+            height: 34px;
+            border-radius: 4px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-weight: 800;
-            font-size: 1.2rem;
-            color: white;
-            box-shadow: 0 0 15px var(--primary-glow);
         }
 
         h1 {
-            font-size: 1.6rem;
+            font-size: 1.3rem;
             font-weight: 700;
-            letter-spacing: -0.02em;
-            background: linear-gradient(to right, #ffffff, #94a3b8);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: #ffffff;
+            letter-spacing: -0.01em;
         }
 
-        .badge {
-            background: rgba(16, 185, 129, 0.15);
-            color: var(--success);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-            padding: 0.35rem 0.85rem;
-            border-radius: 20px;
-            font-size: 0.82rem;
-            font-weight: 600;
-            display: inline-flex;
+        .header-actions {
+            display: flex;
             align-items: center;
-            gap: 0.4rem;
+            gap: 1rem;
         }
 
-        .pulse-dot {
-            width: 8px;
-            height: 8px;
-            background-color: var(--success);
-            border-radius: 50%;
-            animation: pulse 2s infinite;
+        .auth-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            padding: 0.35rem 0.75rem;
+            border-radius: 4px;
         }
 
-        @keyframes pulse {
-            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
-            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        .auth-bar span {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .auth-bar input {
+            background: transparent;
+            border: none;
+            color: var(--orange);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            outline: none;
+            width: 220px;
+        }
+
+        .cluster-status-badge {
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 0.35rem 0.75rem;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            background: var(--panel);
+            color: var(--text-muted);
+        }
+
+        .badge-optimal {
+            color: var(--success);
+            border-color: rgba(34, 197, 94, 0.3);
+            background: rgba(34, 197, 94, 0.05);
+        }
+
+        .badge-degraded {
+            color: var(--warning);
+            border-color: rgba(245, 158, 11, 0.3);
+            background: rgba(245, 158, 11, 0.05);
+        }
+
+        .badge-critical {
+            color: var(--danger);
+            border-color: rgba(239, 68, 68, 0.3);
+            background: rgba(239, 68, 68, 0.05);
         }
 
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2.5rem;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
         }
 
         .card {
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--card-border);
-            border-radius: 16px;
-            padding: 1.5rem;
-            transition: transform 0.2s ease, border-color 0.2s ease;
-        }
-
-        .card:hover {
-            transform: translateY(-2px);
-            border-color: rgba(255, 255, 255, 0.15);
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1.1rem;
         }
 
         .stat-label {
-            font-size: 0.85rem;
+            font-size: 0.73rem;
             color: var(--text-muted);
-            font-weight: 500;
-            margin-bottom: 0.5rem;
+            font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.04em;
+            margin-bottom: 0.4rem;
         }
 
         .stat-value {
-            font-size: 2.2rem;
+            font-size: 1.7rem;
             font-weight: 700;
             color: #ffffff;
             font-family: 'JetBrains Mono', monospace;
         }
 
-        .section-title {
-            font-size: 1.2rem;
+        .section-header {
+            font-size: 0.95rem;
             font-weight: 600;
-            margin-bottom: 1.25rem;
+            margin-bottom: 0.75rem;
             display: flex;
-            align-items: center;
             justify-content: space-between;
+            align-items: center;
         }
 
-        .table-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--card-border);
-            border-radius: 16px;
+        .table-container {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
             overflow: hidden;
-            margin-bottom: 2.5rem;
+            margin-bottom: 1.5rem;
         }
 
         table {
@@ -172,20 +192,20 @@
         }
 
         th {
-            background: rgba(255, 255, 255, 0.03);
-            padding: 1rem 1.5rem;
-            font-size: 0.8rem;
+            background: #181818;
+            padding: 0.75rem 1rem;
+            font-size: 0.75rem;
             font-weight: 600;
             color: var(--text-muted);
             text-transform: uppercase;
-            letter-spacing: 0.05em;
-            border-bottom: 1px solid var(--card-border);
+            letter-spacing: 0.04em;
+            border-bottom: 1px solid var(--border);
         }
 
         td {
-            padding: 1.1rem 1.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-            font-size: 0.95rem;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.86rem;
         }
 
         tr:last-child td {
@@ -194,63 +214,127 @@
 
         .node-addr {
             font-family: 'JetBrains Mono', monospace;
-            font-weight: 500;
-            color: #e5e7eb;
+            font-size: 0.85rem;
+            color: #ffffff;
         }
 
-        .status-pill {
-            padding: 0.25rem 0.65rem;
-            border-radius: 12px;
-            font-size: 0.78rem;
-            font-weight: 600;
+        .status-tag {
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
             display: inline-block;
+            text-transform: uppercase;
         }
 
-        .status-alive {
-            background: rgba(16, 185, 129, 0.15);
-            color: #34d399;
-            border: 1px solid rgba(16, 185, 129, 0.3);
+        .tag-alive {
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(34, 197, 94, 0.3);
         }
 
-        .status-dead {
-            background: rgba(239, 68, 68, 0.15);
-            color: #f87171;
+        .tag-dead {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
             border: 1px solid rgba(239, 68, 68, 0.3);
         }
 
-        .btn-kill {
-            background: rgba(239, 68, 68, 0.15);
-            color: #f87171;
-            border: 1px solid rgba(239, 68, 68, 0.4);
-            padding: 0.45rem 0.9rem;
-            border-radius: 8px;
+        .btn {
+            background: var(--orange);
+            color: #000000;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
             font-size: 0.82rem;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: background 0.15s ease;
+        }
+
+        .btn:hover {
+            background: var(--orange-hover);
+        }
+
+        .btn-sec {
+            background: #1f1f1f;
+            color: #ffffff;
+            border: 1px solid var(--border);
+        }
+
+        .btn-sec:hover {
+            background: #2a2a2a;
+        }
+
+        .btn-kill {
+            background: transparent;
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            padding: 0.3rem 0.6rem;
+            font-size: 0.75rem;
         }
 
         .btn-kill:hover {
             background: var(--danger);
-            color: white;
-            box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+            color: #ffffff;
+        }
+
+        .console-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .console-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .field {
+            margin-bottom: 0.85rem;
+        }
+
+        .field label {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            margin-bottom: 0.3rem;
+            text-transform: uppercase;
+        }
+
+        .field input, .field textarea {
+            width: 100%;
+            background: #080808;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 0.5rem 0.75rem;
+            color: #ffffff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            outline: none;
+        }
+
+        .field input:focus, .field textarea:focus {
+            border-color: var(--orange);
         }
 
         .log-box {
-            background: rgba(0, 0, 0, 0.4);
-            border: 1px solid var(--card-border);
-            border-radius: 12px;
-            padding: 1.25rem;
+            background: #080808;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 1rem;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.85rem;
-            color: #10b981;
-            max-height: 200px;
+            font-size: 0.8rem;
+            color: #d4d4d4;
+            height: 200px;
             overflow-y: auto;
         }
 
-        .log-entry {
-            margin-bottom: 0.4rem;
-            opacity: 0.9;
+        .log-line {
+            margin-bottom: 0.35rem;
+            line-height: 1.35;
         }
 
         .log-time {
@@ -259,10 +343,12 @@
         }
 
         footer {
-            margin-top: 3rem;
             text-align: center;
-            font-size: 0.85rem;
+            font-size: 0.75rem;
             color: var(--text-muted);
+            margin-top: 2rem;
+            border-top: 1px solid var(--border);
+            padding-top: 1rem;
         }
     </style>
 </head>
@@ -270,80 +356,159 @@
     <div class="container">
         <header>
             <div class="brand">
-                <div class="logo-icon">CW</div>
+                <div class="logo-box">CW</div>
                 <div>
-                    <h1>CloudWeave Mesh Engine</h1>
-                    <div style="font-size: 0.8rem; color: var(--text-muted);">Distributed Quorum Object Storage</div>
+                    <h1>CloudWeave</h1>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">Distributed Quorum Object Storage</div>
                 </div>
             </div>
-            <div class="badge">
-                <div class="pulse-dot"></div>
-                Cluster Health: Optimal
+            <div class="header-actions">
+                <div class="auth-bar">
+                    <span>API Key:</span>
+                    <input type="password" id="apiKeyInput" placeholder="Enter cw_key_... or admin123" onchange="saveApiKey()" onkeyup="saveApiKey()" />
+                </div>
+                <div class="cluster-status-badge" id="healthBadge">
+                    <span id="healthText">Checking Cluster...</span>
+                </div>
             </div>
         </header>
 
         <div class="stats-grid">
             <div class="card">
-                <div class="stat-label">Active Storage Nodes</div>
+                <div class="stat-label">Active Nodes</div>
                 <div class="stat-value" id="activeNodesCount">0</div>
             </div>
             <div class="card">
-                <div class="stat-label">Total File Uploads</div>
+                <div class="stat-label">Objects Stored</div>
+                <div class="stat-value" id="storedObjectsCount" style="color: var(--orange);">0</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Storage Footprint</div>
+                <div class="stat-value" id="storageFootprint">0 B</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Total Uploads</div>
                 <div class="stat-value" id="uploadsTotal">0</div>
             </div>
             <div class="card">
-                <div class="stat-label">Total File Downloads</div>
+                <div class="stat-label">Total Downloads</div>
                 <div class="stat-value" id="downloadsTotal">0</div>
             </div>
-            <div class="card">
-                <div class="stat-label">Self-Healed Chunks</div>
-                <div class="stat-value" id="repairedChunksTotal" style="color: #34d399;">0</div>
-            </div>
         </div>
 
-        <div class="section-title">
+        <div class="section-header">
+            <span>Live Stored Objects Inventory</span>
+            <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;">Real-Time Quorum Manifests</span>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Object Key / File ID</th>
+                        <th>Bucket / Namespace</th>
+                        <th>File Size</th>
+                        <th>Quorum Chunks</th>
+                    </tr>
+                </thead>
+                <tbody id="objectsTableBody">
+                    <tr><td colspan="4" style="text-align:center; color: var(--text-muted);">No objects uploaded yet</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section-header">
             <span>Cluster Mesh Nodes</span>
-            <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">Live Ring Topology</span>
+            <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;">Live Ring Topology</span>
         </div>
 
-        <div class="table-card">
+        <div class="table-container">
             <table>
                 <thead>
                     <tr>
                         <th>Node Address</th>
                         <th>Role</th>
                         <th>Status</th>
-                        <th>Demo Action</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody id="nodesTableBody">
-                    <tr><td colspan="4" style="text-align:center; color: var(--text-muted);">Loading cluster topology...</td></tr>
+                    <tr><td colspan="4" style="text-align:center; color: var(--text-muted);">Loading node topology...</td></tr>
                 </tbody>
             </table>
         </div>
 
-        <div class="section-title">
-            <span>Self-Healing & Event Feed</span>
-        </div>
-        <div class="log-box" id="eventLogs">
-            <div class="log-entry"><span class="log-time">[SYSTEM]</span> Dashboard connected to CloudWeave node cluster monitoring feed.</div>
+        <div class="console-grid">
+            <div class="card">
+                <div class="section-header" style="margin-bottom: 0.75rem;">
+                    <span>Object Storage Console</span>
+                </div>
+                <div class="field">
+                    <label>Object Key / File ID</label>
+                    <input type="text" id="fileIdInput" value="demo-file.txt" placeholder="demo-file.txt">
+                </div>
+                <div class="field">
+                    <label>Payload Content</label>
+                    <textarea id="filePayloadInput" rows="3" placeholder="Enter text payload...">Hello from CloudWeave Distributed Object Store!</textarea>
+                </div>
+                <div style="display:flex; gap:0.5rem;">
+                    <button type="button" class="btn" onclick="uploadTestFile()">PUT (Upload Object)</button>
+                    <button type="button" class="btn btn-sec" onclick="downloadTestFile()">GET (Fetch Object)</button>
+                </div>
+            </div>
+
+            <div class="card" style="display:flex; flex-direction:column;">
+                <div class="section-header" style="margin-bottom: 0.75rem;">
+                    <span>Cluster Event Log</span>
+                </div>
+                <div class="log-box" id="eventLogs">
+                    <div class="log-line"><span class="log-time">[SYSTEM]</span> Dashboard connected to live cluster feed.</div>
+                </div>
+            </div>
         </div>
 
         <footer>
-            CloudWeave High-Performance Storage Architecture &copy; 2026
+            CloudWeave Engine &copy; 2026
         </footer>
     </div>
 
     <script>
-        let previousActiveNodes = 0;
+        let previousActiveNodes = -1;
+        let previousObjectCount = -1;
+
+        const savedKey = localStorage.getItem('cw_admin_key') || '';
+        if (savedKey) {
+            document.getElementById('apiKeyInput').value = savedKey;
+        }
+
+        function saveApiKey() {
+            const key = document.getElementById('apiKeyInput').value.trim();
+            if (key) {
+                localStorage.setItem('cw_admin_key', key);
+            }
+        }
+
+        function getAuthHeader() {
+            const key = document.getElementById('apiKeyInput').value.trim() || localStorage.getItem('cw_admin_key') || '';
+            if (!key) return {};
+            return { 'Authorization': 'Bearer ' + key };
+        }
+
+        function formatBytes(bytes) {
+            if (!bytes || bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
 
         function addLog(msg) {
             const container = document.getElementById('eventLogs');
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
+            const line = document.createElement('div');
+            line.className = 'log-line';
             const time = new Date().toLocaleTimeString();
-            entry.innerHTML = `<span class="log-time">[${time}]</span> ${msg}`;
-            container.appendChild(entry);
+            line.innerHTML = `<span class="log-time">[${time}]</span> ${msg}`;
+            container.appendChild(line);
             container.scrollTop = container.scrollHeight;
         }
 
@@ -353,65 +518,157 @@
                 if (!res.ok) return;
                 const data = await res.json();
 
-                document.getElementById('activeNodesCount').textContent = data.active_nodes.length;
-                document.getElementById('uploadsTotal').textContent = data.file_uploads_total;
-                document.getElementById('downloadsTotal').textContent = data.file_downloads_total;
-                document.getElementById('repairedChunksTotal').textContent = data.repaired_chunks_total;
+                const activeCount = data.active_nodes ? data.active_nodes.length : 0;
+                const totalNodes = data.all_nodes ? data.all_nodes.length : 0;
+                const storedObjects = data.stored_objects || [];
+                const totalStoredCount = data.total_files_stored || storedObjects.length;
+                const totalBytes = data.total_bytes_stored || 0;
 
-                if (previousActiveNodes > 0 && data.active_nodes.length < previousActiveNodes) {
-                    addLog(`<span style="color:#ef4444;">WARNING: Node failure detected! Re-balancing hash ring and triggering repair worker pool...</span>`);
-                } else if (previousActiveNodes > 0 && data.active_nodes.length > previousActiveNodes) {
-                    addLog(`<span style="color:#34d399;">SUCCESS: Node joined cluster! Updating virtual node rings.</span>`);
+                document.getElementById('activeNodesCount').textContent = activeCount;
+                document.getElementById('storedObjectsCount').textContent = totalStoredCount;
+                document.getElementById('storageFootprint').textContent = formatBytes(totalBytes);
+                document.getElementById('uploadsTotal').textContent = data.file_uploads_total || 0;
+                document.getElementById('downloadsTotal').textContent = data.file_downloads_total || 0;
+
+                const badge = document.getElementById('healthBadge');
+                const badgeText = document.getElementById('healthText');
+                if (activeCount === totalNodes && totalNodes > 0) {
+                    badge.className = 'cluster-status-badge badge-optimal';
+                    badgeText.textContent = `HEALTH: OPTIMAL (${activeCount}/${totalNodes} Nodes)`;
+                } else if (activeCount > 0) {
+                    badge.className = 'cluster-status-badge badge-degraded';
+                    badgeText.textContent = `HEALTH: DEGRADED (${totalNodes - activeCount} Down)`;
+                } else {
+                    badge.className = 'cluster-status-badge badge-critical';
+                    badgeText.textContent = `HEALTH: CRITICAL (0 Active)`;
                 }
-                previousActiveNodes = data.active_nodes.length;
 
+                if (previousActiveNodes >= 0 && activeCount < previousActiveNodes) {
+                    addLog(`<span style="color:var(--danger);">[ALERT] Node offline detected. Quorum ring adjusted.</span>`);
+                } else if (previousActiveNodes >= 0 && activeCount > previousActiveNodes) {
+                    addLog(`<span style="color:var(--orange);">[INFO] Node joined cluster mesh. Ring updated.</span>`);
+                }
+                previousActiveNodes = activeCount;
+
+                if (previousObjectCount >= 0 && totalStoredCount > previousObjectCount) {
+                    addLog(`<span style="color:var(--orange);">[STORAGE] New object ingested & chunked across cluster!</span>`);
+                }
+                previousObjectCount = totalStoredCount;
+
+                // Render Stored Objects Table
+                const objTbody = document.getElementById('objectsTableBody');
+                objTbody.innerHTML = '';
+                if (storedObjects.length > 0) {
+                    storedObjects.forEach(obj => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="node-addr" style="color:var(--orange);">${obj.file_id}</td>
+                            <td><span style="color:var(--text-muted);">${obj.namespace || 'default'}</span></td>
+                            <td style="font-family:'JetBrains Mono', monospace;">${formatBytes(obj.size)}</td>
+                            <td><span class="status-tag tag-alive">${obj.chunk_count} Chunks</span></td>
+                        `;
+                        objTbody.appendChild(tr);
+                    });
+                } else {
+                    objTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color: var(--text-muted);">No objects uploaded yet</td></tr>';
+                }
+
+                // Render Nodes Table
                 const tbody = document.getElementById('nodesTableBody');
                 tbody.innerHTML = '';
+                if (data.all_nodes && data.all_nodes.length > 0) {
+                    data.all_nodes.forEach(node => {
+                        const tr = document.createElement('tr');
+                        const isAlive = node.is_alive !== undefined ? node.is_alive : (data.active_nodes && data.active_nodes.includes(node.addr));
 
-                data.all_nodes.forEach(node => {
-                    const tr = document.createElement('tr');
-                    const isAlive = data.active_nodes.includes(node.addr);
-
-                    tr.innerHTML = `
-                        <td class="node-addr">${node.addr} ${node.is_local ? '<span style="color:var(--primary); font-size:0.75rem;">(this node)</span>' : ''}</td>
-                        <td>${node.is_local ? 'Coordinator / Replica' : 'Storage Peer'}</td>
-                        <td>
-                            <span class="status-pill ${isAlive ? 'status-alive' : 'status-dead'}">
-                                ${isAlive ? 'ALIVE' : 'DEAD'}
-                            </span>
-                        </td>
-                        <td>
-                            ${isAlive ? `<button class="btn-kill" onclick="killNode('${node.addr}')">Simulate Kill</button>` : '<span style="color:var(--text-muted); font-size:0.8rem;">Node Down</span>'}
-                        </td>
-                    `;
-                    tbody.appendChild(tr);
-                });
+                        tr.innerHTML = `
+                            <td class="node-addr">${node.addr} ${node.is_local ? '<span style="color:var(--orange); font-size:0.75rem;">(this node)</span>' : ''}</td>
+                            <td>${node.is_local ? 'Coordinator / Replica' : 'Storage Peer'}</td>
+                            <td>
+                                <span class="status-tag ${isAlive ? 'tag-alive' : 'tag-dead'}">
+                                    ${isAlive ? 'ALIVE' : 'DEAD'}
+                                </span>
+                            </td>
+                            <td>
+                                ${isAlive ? `<button type="button" class="btn btn-kill" onclick="killNode('${node.addr}')">Kill Node</button>` : '<span style="color:var(--text-muted); font-size:0.78rem;">Offline</span>'}
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color: var(--text-muted);">No nodes registered</td></tr>';
+                }
             } catch (err) {
-                console.error('Failed to update dashboard:', err);
+                console.error('Failed to update cluster status:', err);
             }
         }
 
         async function killNode(addr) {
-            let adminKey = localStorage.getItem('cw_admin_key') || 'default-admin-key';
-            const userKey = prompt("Enter Admin API Key to authorize node termination:", adminKey);
-            if (!userKey) return;
-            localStorage.setItem('cw_admin_key', userKey);
-
-            addLog(`Authorizing node termination demo for target node ${addr}...`);
+            saveApiKey();
+            addLog(`Triggering kill command for ${addr}...`);
             try {
                 const res = await fetch('/admin/kill?node_addr=' + encodeURIComponent(addr), {
                     method: 'POST',
-                    headers: { 'Authorization': 'Bearer ' + userKey }
+                    headers: getAuthHeader()
                 });
                 if (res.ok) {
-                    addLog(`<span style="color:#f59e0b;">Node ${addr} terminated. Heartbeat detector will flag dead node...</span>`);
+                    addLog(`<span style="color:var(--warning);">Simulated failure triggered for ${addr}.</span>`);
                     fetchClusterStatus();
                 } else {
                     const txt = await res.text();
-                    addLog(`<span style="color:#ef4444;">Failed to kill node ${addr}: ${txt}</span>`);
+                    addLog(`<span style="color:var(--danger);">Kill failed (${res.status}): ${txt}</span>`);
                 }
             } catch (e) {
-                addLog(`<span style="color:#ef4444;">Error calling kill endpoint: ${e.message}</span>`);
+                addLog(`<span style="color:var(--danger);">Kill error: ${e.message}</span>`);
+            }
+        }
+
+        async function uploadTestFile() {
+            saveApiKey();
+            const fileId = document.getElementById('fileIdInput').value.trim() || 'demo-file.txt';
+            const payload = document.getElementById('filePayloadInput').value;
+
+            addLog(`PUT object '${fileId}' to quorum cluster...`);
+            try {
+                const res = await fetch('/files/default/' + encodeURIComponent(fileId), {
+                    method: 'PUT',
+                    headers: getAuthHeader(),
+                    body: payload
+                });
+
+                if (res.ok) {
+                    addLog(`<span style="color:var(--orange);">SUCCESS: Object '${fileId}' stored across quorum.</span>`);
+                    fetchClusterStatus();
+                } else {
+                    const txt = await res.text();
+                    addLog(`<span style="color:var(--danger);">Upload failed (${res.status}): ${txt}</span>`);
+                }
+            } catch (e) {
+                addLog(`<span style="color:var(--danger);">Network error: ${e.message}</span>`);
+            }
+        }
+
+        async function downloadTestFile() {
+            saveApiKey();
+            const fileId = document.getElementById('fileIdInput').value.trim() || 'demo-file.txt';
+
+            addLog(`GET object '${fileId}' from quorum cluster...`);
+            try {
+                const res = await fetch('/files/default/' + encodeURIComponent(fileId), {
+                    method: 'GET',
+                    headers: getAuthHeader()
+                });
+
+                if (res.ok) {
+                    const text = await res.text();
+                    addLog(`<span style="color:#ffffff;">FETCHED '${fileId}' (${text.length} B): "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"</span>`);
+                    fetchClusterStatus();
+                } else {
+                    const txt = await res.text();
+                    addLog(`<span style="color:var(--danger);">Fetch failed (${res.status}): ${txt}</span>`);
+                }
+            } catch (e) {
+                addLog(`<span style="color:var(--danger);">Network error: ${e.message}</span>`);
             }
         }
 

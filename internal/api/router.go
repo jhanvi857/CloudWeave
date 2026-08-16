@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"cloudWeave/internal/auth"
 	"cloudWeave/internal/metadata"
 	"cloudWeave/internal/metrics"
+	"cloudWeave/internal/s3"
 )
 
 type GCRunner interface {
@@ -327,6 +329,36 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner G
 	// Prometheus metrics endpoint
 	mux.HandleFunc("/metrics", metrics.Handler())
 
-	return mux
+	var s3Handler http.Handler
+	if apiHandler != nil && apiHandler.GetMetaStore() != nil && apiHandler.GetEngine() != nil {
+		s3Handler = s3.NewS3Handler(apiHandler.GetMetaStore(), apiHandler.GetEngine(), apiHandler.GetChunkSize(), authenticator)
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key, X-Namespace")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		path := r.URL.Path
+		if path == "/" || (!strings.HasPrefix(path, "/files/") &&
+			!strings.HasPrefix(path, "/internal/") &&
+			!strings.HasPrefix(path, "/dashboard") &&
+			!strings.HasPrefix(path, "/cluster/") &&
+			!strings.HasPrefix(path, "/admin/") &&
+			!strings.HasPrefix(path, "/chunks/") &&
+			path != "/health" &&
+			path != "/metrics") {
+			if s3Handler != nil {
+				s3Handler.ServeHTTP(w, r)
+				return
+			}
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
