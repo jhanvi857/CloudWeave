@@ -32,7 +32,7 @@ type ObjectVersion struct {
 
 // Config holds initialization options for the CloudWeave client.
 type Config struct {
-	Endpoints           []string      // List of cluster node HTTP addresses (e.g. ["http://localhost:8080", "http://localhost:8081"])
+	Endpoints           []string      // List of cluster node HTTP addresses (e.g. ["http://localhost:9000", "http://localhost:9001"])
 	APIKey              string        // API key or token for authentication
 	Namespace           string        // Default namespace for object keys (defaults to "default")
 	HTTPClient          *http.Client  // Optional HTTP client instance

@@ -43,7 +43,7 @@ func getEnvIntOrDefault(envKey string, fallback int) int {
 }
 
 func main() {
-	port := flag.String("port", getEnvOrDefault("CLOUDWEAVE_PORT", "8080"), "port to listen on")
+	port := flag.String("port", getEnvOrDefault("CLOUDWEAVE_PORT", "9000"), "port to listen on")
 	dataDir := flag.String("data", getEnvOrDefault("CLOUDWEAVE_DATA", "./data"), "directory to store chunks in")
 	peersFlag := flag.String("peers", getEnvOrDefault("CLOUDWEAVE_PEERS", ""), "comma-separated list of peer HTTP node addresses")
 	walPath := flag.String("wal", getEnvOrDefault("CLOUDWEAVE_WAL", ""), "path to WAL file")
