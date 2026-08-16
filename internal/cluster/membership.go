@@ -50,7 +50,10 @@ func (m *Membership) MarkAlive(addr string) {
 	info, exists := m.nodes[addr]
 	if exists {
 		info.LastSeen = time.Now()
-		info.IsAlive = true
+		if !info.IsAlive {
+			info.IsAlive = true
+			m.ring.AddNode(addr)
+		}
 	}
 }
 

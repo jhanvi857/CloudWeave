@@ -18,6 +18,7 @@ const CredentialContextKey contextKey = "auth_credential"
 // Credential represents an API key permission record with SHA-256 hashed key storage.
 type Credential struct {
 	KeyHash    string   `json:"key_hash"`
+	RawKey     string   `json:"raw_key,omitempty"`
 	Namespaces []string `json:"namespaces"` // e.g. ["ns1", "ns2"] or ["*"] for all namespaces
 	IsAdmin    bool     `json:"is_admin"`
 }
@@ -93,6 +94,7 @@ func (a *Authenticator) AddRawKey(rawKey string, namespaces []string, isAdmin bo
 	keyHash := HashKey(rawKey)
 	cred := Credential{
 		KeyHash:    keyHash,
+		RawKey:     rawKey,
 		Namespaces: namespaces,
 		IsAdmin:    isAdmin,
 	}
@@ -144,6 +146,44 @@ func (a *Authenticator) ValidateKey(rawKey string) (*Credential, bool) {
 		return nil, false
 	}
 	return cred, true
+}
+
+// LookupSecretKey retrieves the secret key and credential associated with an access key ID.
+func (a *Authenticator) LookupSecretKey(accessKeyID string) (string, *Credential, bool) {
+	if accessKeyID == "" {
+		return "", nil, false
+	}
+
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	// 1. Direct hash lookup (AccessKeyID is the raw key)
+	keyHash := HashKey(accessKeyID)
+	if cred, exists := a.keys[keyHash]; exists {
+		secretKey := cred.RawKey
+		if secretKey == "" {
+			secretKey = accessKeyID
+		}
+		return secretKey, cred, true
+	}
+
+	// 2. Fallback check (AccessKeyID stored as key in map directly or matches raw key)
+	if cred, exists := a.keys[accessKeyID]; exists {
+		secretKey := cred.RawKey
+		if secretKey == "" {
+			secretKey = accessKeyID
+		}
+		return secretKey, cred, true
+	}
+
+	// 3. Scan for cred.RawKey matching accessKeyID
+	for _, cred := range a.keys {
+		if cred.RawKey == accessKeyID {
+			return cred.RawKey, cred, true
+		}
+	}
+
+	return "", nil, false
 }
 
 // GetAllCredentials returns a snapshot of all registered credentials (with SHA-256 hashes, no raw keys).
