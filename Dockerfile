@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:alpine AS builder
 
 WORKDIR /app
 
@@ -15,6 +15,6 @@ WORKDIR /
 
 COPY --from=builder /node /node
 
-EXPOSE 8080
+EXPOSE 9000
 
 ENTRYPOINT ["/node"]
