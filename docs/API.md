@@ -117,7 +117,7 @@ Retrieves full object data stream and headers.
   - Headers set: `Content-Type`, `Content-Length`, `Accept-Ranges: bytes`, and all `X-Meta-*` key-values.
 
 ```bash
-curl -X GET "https://localhost:8080/files/my-tenant/documents/report.pdf" \
+curl -X GET "https://localhost:9000/files/my-tenant/documents/report.pdf" \
   -H "Authorization: Bearer my-api-key" \
   -o downloaded_report.pdf
 ```
@@ -137,7 +137,7 @@ Retrieves a specific byte range of an object.
   - Headers set: `Content-Range: bytes {start}-{end}/{total_size}`, `Content-Length`.
 
 ```bash
-curl -X GET "https://localhost:8080/files/my-tenant/documents/report.pdf" \
+curl -X GET "https://localhost:9000/files/my-tenant/documents/report.pdf" \
   -H "Authorization: Bearer my-api-key" \
   -H "Range: bytes=0-1023" \
   -o header_chunk.bin
@@ -156,7 +156,7 @@ Removes object metadata from the cluster.
   - `200 OK` — Object metadata successfully deleted.
 
 ```bash
-curl -X DELETE "https://localhost:8080/files/my-tenant/documents/report.pdf" \
+curl -X DELETE "https://localhost:9000/files/my-tenant/documents/report.pdf" \
   -H "Authorization: Bearer my-api-key"
 ```
 
@@ -168,10 +168,10 @@ curl -X DELETE "https://localhost:8080/files/my-tenant/documents/report.pdf" \
 Retrieves an up-to-date JSON list of active node URLs in the cluster topology.
 
 - **Headers:** API Key Credential (Required)
-- **Response:** `200 OK` — JSON array of active node addresses `["http://node1:8080", "http://node2:8080"]`.
+- **Response:** `200 OK` — JSON array of active node addresses `["http://node1:9000", "http://node2:9000"]`.
 
 ```bash
-curl -X GET "https://localhost:8080/cluster/nodes" \
+curl -X GET "https://localhost:9000/cluster/nodes" \
   -H "Authorization: Bearer my-api-key"
 ```
 
@@ -187,7 +187,7 @@ Generates a cryptographically random API key with specified namespace permission
 - **Response:** `201 Created` — Returns raw key **once** alongside `key_hash`.
 
 ```bash
-curl -X POST "https://localhost:8080/admin/keys" \
+curl -X POST "https://localhost:9000/admin/keys" \
   -H "Authorization: Bearer <ADMIN_KEY>" \
   -H "Content-Type: application/json" \
   -d '{"namespaces": ["finance"], "is_admin": false}'
@@ -205,7 +205,7 @@ Revokes an API key credential by key string or SHA-256 `key_hash`.
 - **Response:** `200 OK` — Credential revoked.
 
 ```bash
-curl -X DELETE "https://localhost:8080/admin/keys?key_hash=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" \
+curl -X DELETE "https://localhost:9000/admin/keys?key_hash=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" \
   -H "Authorization: Bearer <ADMIN_KEY>"
 ```
 
@@ -295,7 +295,7 @@ func main() {
 	// Initialize CloudWeave Client with seed endpoints and auto-discovery
 	cli, err := client.New(client.Config{
 		Endpoints: []string{
-			"http://localhost:8080",
+			"http://localhost:9000",
 		},
 		APIKey:              "user-secret-key",
 		Namespace:           "my-tenant",
