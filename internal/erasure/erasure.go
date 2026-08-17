@@ -1,14 +1,23 @@
 package erasure
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 )
 
-// Shard represents an individual data or parity chunk shard.
+// Shard represents an individual data or parity chunk shard with cryptographic checksum.
 type Shard struct {
-	Index  int
-	Data   []byte
-	IsParity bool
+	Index    int    `json:"index"`
+	Data     []byte `json:"data"`
+	Checksum string `json:"checksum"` // SHA-256 hex checksum (finding #17: tamper detection)
+	IsParity bool   `json:"is_parity"`
+}
+
+// ComputeChecksum calculates the SHA-256 hex checksum of shard data.
+func ComputeChecksum(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // Encoder provides Reed-Solomon $K+M$ erasure coding operations.
@@ -47,6 +56,7 @@ func (e *Encoder) Encode(data []byte) ([]Shard, error) {
 		shards[i] = Shard{
 			Index:    i,
 			Data:     shardData,
+			Checksum: ComputeChecksum(shardData),
 			IsParity: false,
 		}
 	}
@@ -63,12 +73,14 @@ func (e *Encoder) Encode(data []byte) ([]Shard, error) {
 		shards[e.K+p] = Shard{
 			Index:    e.K + p,
 			Data:     parityData,
+			Checksum: ComputeChecksum(parityData),
 			IsParity: true,
 		}
 	}
 
 	return shards, nil
 }
+
 
 // Reconstruct recovers the original byte data from any K surviving shards.
 func (e *Encoder) Reconstruct(available map[int][]byte, originalLength int) ([]byte, error) {
@@ -142,6 +154,26 @@ func (e *Encoder) Reconstruct(available map[int][]byte, originalLength int) ([]b
 
 	return rejoin(recoveredDataShards, e.K, originalLength), nil
 }
+
+// ReconstructVerified validates shard checksums before reconstruction, discarding tampered shards (finding #17).
+func (e *Encoder) ReconstructVerified(available map[int][]byte, expectedChecksums map[int]string, originalLength int) ([]byte, error) {
+	validShards := make(map[int][]byte)
+	for idx, data := range available {
+		if expected, ok := expectedChecksums[idx]; ok && expected != "" {
+			if ComputeChecksum(data) != expected {
+				continue // Silently discard tampered/corrupted shard
+			}
+		}
+		validShards[idx] = data
+	}
+
+	if len(validShards) < e.K {
+		return nil, fmt.Errorf("insufficient valid shards after integrity check: %d valid (needed K=%d)", len(validShards), e.K)
+	}
+
+	return e.Reconstruct(validShards, originalLength)
+}
+
 
 func rejoin(shards map[int][]byte, k int, origLen int) []byte {
 	var buf []byte
