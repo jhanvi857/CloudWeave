@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,7 +24,43 @@ func jsonReader(v interface{}) io.Reader {
 	return bytes.NewReader(b)
 }
 
+// verifyClusterSecret checks the X-Cluster-Secret header against the configured cluster secret.
+// Returns true if the secret matches or if no cluster secret is configured (backward compatibility).
+func verifyClusterSecret(r *http.Request, clusterSecret string) bool {
+	if clusterSecret == "" {
+		return true // No cluster secret configured — allow (backward compat)
+	}
+	provided := r.Header.Get("X-Cluster-Secret")
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(clusterSecret)) == 1
+}
+
+// wrapClusterAuth wraps an http.Handler with cluster secret verification.
+func wrapClusterAuth(handler http.Handler, clusterSecret string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !verifyClusterSecret(r, clusterSecret) {
+			http.Error(w, "forbidden: invalid or missing cluster secret", http.StatusForbidden)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
+}
+
+// wrapClusterAuthFunc wraps an http.HandlerFunc with cluster secret verification.
+func wrapClusterAuthFunc(handler http.HandlerFunc, clusterSecret string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !verifyClusterSecret(r, clusterSecret) {
+			http.Error(w, "forbidden: invalid or missing cluster secret", http.StatusForbidden)
+			return
+		}
+		handler(w, r)
+	}
+}
+
 func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner GCRunner, authOpts ...*auth.Authenticator) http.Handler {
+	return NewRouterWithClusterSecret(apiHandler, transportHandler, gcRunner, "", authOpts...)
+}
+
+func NewRouterWithClusterSecret(apiHandler *APIHandler, transportHandler http.Handler, gcRunner GCRunner, clusterSecret string, authOpts ...*auth.Authenticator) http.Handler {
 	mux := http.NewServeMux()
 
 	var authenticator *auth.Authenticator
@@ -35,10 +72,12 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner G
 
 	if apiHandler != nil {
 		apiHandler.SetAuthenticator(authenticator)
+		apiHandler.SetClusterSecret(clusterSecret)
 		mux.HandleFunc("/files/", apiHandler.HandleFiles)
-		mux.HandleFunc("/internal/manifest", apiHandler.HandleInternalManifest)
-		mux.HandleFunc("/internal/join", apiHandler.HandleInternalJoin)
-		mux.HandleFunc("/internal/leave", apiHandler.HandleInternalLeave)
+		mux.HandleFunc("/internal/manifest", wrapClusterAuthFunc(apiHandler.HandleInternalManifest, clusterSecret))
+		mux.HandleFunc("/internal/join", wrapClusterAuthFunc(apiHandler.HandleInternalJoin, clusterSecret))
+		mux.HandleFunc("/internal/leave", wrapClusterAuthFunc(apiHandler.HandleInternalLeave, clusterSecret))
+		mux.HandleFunc("/internal/revoke-key", wrapClusterAuthFunc(apiHandler.HandleInternalRevokeKey, clusterSecret))
 		mux.HandleFunc("/dashboard", apiHandler.HandleDashboard)
 		mux.HandleFunc("/dashboard/", apiHandler.HandleDashboard)
 		mux.HandleFunc("/cluster/status", apiHandler.HandleClusterStatus)
@@ -50,7 +89,7 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner G
 					http.Error(w, "unauthorized: missing or invalid API key", http.StatusUnauthorized)
 					return
 				}
-				if !cred.IsAdmin && !cred.CanAccessNamespace("*") {
+				if !cred.IsAdmin {
 					http.Error(w, "forbidden: admin privileges required", http.StatusForbidden)
 					return
 				}
@@ -66,7 +105,7 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner G
 					http.Error(w, "unauthorized: missing or invalid API key", http.StatusUnauthorized)
 					return
 				}
-				if !cred.IsAdmin && !cred.CanAccessNamespace("*") {
+				if !cred.IsAdmin {
 					http.Error(w, "forbidden: admin privileges required", http.StatusForbidden)
 					return
 				}
@@ -95,6 +134,9 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner G
 					for _, m := range allManifests {
 						if req, err := http.NewRequest(http.MethodPost, nodeAddr+"/internal/manifest", jsonReader(m)); err == nil {
 							req.Header.Set("Content-Type", "application/json")
+							if clusterSecret != "" {
+								req.Header.Set("X-Cluster-Secret", clusterSecret)
+							}
 							if resp, err := apiHandler.httpClient.Do(req); err == nil && resp != nil {
 								resp.Body.Close()
 							}
@@ -104,6 +146,9 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner G
 
 				for _, peer := range pm.GetActiveNodes() {
 					if req, err := http.NewRequest(http.MethodPost, nodeAddr+"/internal/join?node_addr="+peer, nil); err == nil {
+						if clusterSecret != "" {
+							req.Header.Set("X-Cluster-Secret", clusterSecret)
+						}
 						if resp, err := apiHandler.httpClient.Do(req); err == nil && resp != nil {
 							resp.Body.Close()
 						}
@@ -123,7 +168,7 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner G
 					http.Error(w, "unauthorized: missing or invalid API key", http.StatusUnauthorized)
 					return
 				}
-				if !cred.IsAdmin && !cred.CanAccessNamespace("*") {
+				if !cred.IsAdmin {
 					http.Error(w, "forbidden: admin privileges required", http.StatusForbidden)
 					return
 				}
@@ -188,7 +233,7 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner G
 					http.Error(w, "unauthorized: missing or invalid API key", http.StatusUnauthorized)
 					return
 				}
-				if !cred.IsAdmin && !cred.CanAccessNamespace("*") {
+				if !cred.IsAdmin {
 					http.Error(w, "forbidden: admin privileges required", http.StatusForbidden)
 					return
 				}
@@ -261,6 +306,9 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner G
 					})
 				}
 
+				// Broadcast revocation to all cluster peers (#2)
+				apiHandler.BroadcastKeyRevocation(targetHash)
+
 				w.WriteHeader(http.StatusOK)
 				fmt.Fprintf(w, "Key hash %s revoked successfully\n", targetHash)
 
@@ -279,7 +327,7 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner G
 	}
 
 	if transportHandler != nil {
-		mux.Handle("/chunks/", transportHandler)
+		mux.Handle("/chunks/", wrapClusterAuth(transportHandler, clusterSecret))
 	}
 
 	if gcRunner != nil {
@@ -291,7 +339,7 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner G
 					http.Error(w, "unauthorized: missing or invalid API key", http.StatusUnauthorized)
 					return
 				}
-				if !cred.IsAdmin && !cred.CanAccessNamespace("*") {
+				if !cred.IsAdmin {
 					http.Error(w, "forbidden: admin privileges required", http.StatusForbidden)
 					return
 				}
@@ -312,7 +360,7 @@ func NewRouter(apiHandler *APIHandler, transportHandler http.Handler, gcRunner G
 			}
 
 			if err != nil {
-				http.Error(w, fmt.Sprintf("GC execution failed: %v", err), http.StatusInternalServerError)
+				http.Error(w, "GC execution failed", http.StatusInternalServerError)
 				return
 			}
 			w.WriteHeader(http.StatusOK)
