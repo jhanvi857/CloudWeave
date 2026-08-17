@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+// maxChunkBodySize limits PUT body to 16 MiB to prevent memory exhaustion (finding #13).
+const maxChunkBodySize = 16 * 1024 * 1024
+
 type Server struct {
 	store *storage.DiskStore
 }
@@ -33,11 +36,23 @@ func (s *Server) handleChunk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate chunk ID is a safe hex string (finding #8: path traversal protection)
+	if !storage.ValidateChunkID(chunkID) {
+		http.Error(w, "invalid chunk id", http.StatusBadRequest)
+		return
+	}
+
 	switch r.Method {
 	case http.MethodPut:
-		data, err := io.ReadAll(r.Body)
+		// Limit body size to prevent memory exhaustion (finding #13)
+		limitedBody := io.LimitReader(r.Body, maxChunkBodySize+1)
+		data, err := io.ReadAll(limitedBody)
 		if err != nil {
 			http.Error(w, "reading body", http.StatusBadRequest)
+			return
+		}
+		if int64(len(data)) > maxChunkBodySize {
+			http.Error(w, "chunk body too large", http.StatusRequestEntityTooLarge)
 			return
 		}
 		if err := s.store.Put(chunkID, data); err != nil {
@@ -72,3 +87,4 @@ func (s *Server) handleChunk(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
+

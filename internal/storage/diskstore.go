@@ -4,9 +4,25 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
+
+// validChunkIDPattern matches safe chunk IDs: alphanumeric, hyphens, underscores, and dots.
+var validChunkIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,256}$`)
+
+// ValidateChunkID checks that a chunk ID is safe from path traversal and injection attacks.
+func ValidateChunkID(chunkID string) bool {
+	if chunkID == "" || len(chunkID) > 256 || chunkID == "." || chunkID == ".." {
+		return false
+	}
+	if strings.Contains(chunkID, "/") || strings.Contains(chunkID, "\\") || strings.Contains(chunkID, "..") || strings.Contains(chunkID, "\x00") {
+		return false
+	}
+	return validChunkIDPattern.MatchString(chunkID)
+}
 
 type DiskStore struct {
 	baseDir string
@@ -158,5 +174,12 @@ func (s *DiskStore) ListChunks() ([]string, error) {
 }
 
 func (s *DiskStore) pathFor(chunkID string) string {
-	return filepath.Join(s.baseDir, chunkID)
+	p := filepath.Join(s.baseDir, chunkID)
+	// Ensure the resolved path stays within baseDir (path traversal protection)
+	cleaned := filepath.Clean(p)
+	if !strings.HasPrefix(cleaned, filepath.Clean(s.baseDir)+string(filepath.Separator)) && cleaned != filepath.Clean(s.baseDir) {
+		// Return a path that won't exist rather than an escaped path
+		return filepath.Join(s.baseDir, "_invalid_")
+	}
+	return cleaned
 }
