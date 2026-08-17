@@ -8,11 +8,12 @@ import (
 )
 
 type HeartbeatChecker struct {
-	membership  *Membership
-	interval    time.Duration
-	deadTimeout time.Duration
-	httpClient  *http.Client
-	stopChan    chan struct{}
+	membership    *Membership
+	interval      time.Duration
+	deadTimeout   time.Duration
+	httpClient    *http.Client
+	clusterSecret string
+	stopChan      chan struct{}
 }
 
 func NewHeartbeatChecker(membership *Membership, interval, deadTimeout time.Duration) *HeartbeatChecker {
@@ -31,6 +32,17 @@ func NewHeartbeatChecker(membership *Membership, interval, deadTimeout time.Dura
 		stopChan:    make(chan struct{}),
 	}
 }
+
+func (h *HeartbeatChecker) SetHTTPClient(client *http.Client) {
+	if client != nil {
+		h.httpClient = client
+	}
+}
+
+func (h *HeartbeatChecker) SetClusterSecret(secret string) {
+	h.clusterSecret = secret
+}
+
 
 func (h *HeartbeatChecker) Start() {
 	ticker := time.NewTicker(h.interval)
@@ -84,6 +96,9 @@ func (h *HeartbeatChecker) pingNode(addr string) bool {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false
+	}
+	if h.clusterSecret != "" {
+		req.Header.Set("X-Cluster-Secret", h.clusterSecret)
 	}
 
 	resp, err := h.httpClient.Do(req)

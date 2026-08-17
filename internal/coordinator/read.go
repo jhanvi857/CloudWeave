@@ -38,7 +38,7 @@ func (c *Coordinator) ReadChunk(ctx context.Context, chunkID string, locations [
 			if targetNode == c.localAddr && c.localStore != nil {
 				data, err = c.localStore.Get(chunkID)
 			} else {
-				client := transport.NewClient(targetNode)
+				client := transport.NewClientWithHTTPClientAndSecret(targetNode, c.httpClient, c.clusterSecret)
 				reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 				defer cancel()
 				data, err = client.GetChunk(reqCtx, chunkID)

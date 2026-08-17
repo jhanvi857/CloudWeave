@@ -31,7 +31,7 @@ func (c *Coordinator) WriteChunk(ctx context.Context, chunkID string, data []byt
 			if targetNode == c.localAddr && c.localStore != nil {
 				err = c.localStore.Put(chunkID, data)
 			} else {
-				client := transport.NewClient(targetNode)
+				client := transport.NewClientWithHTTPClientAndSecret(targetNode, c.httpClient, c.clusterSecret)
 				reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 				defer cancel()
 				err = client.PutChunk(reqCtx, chunkID, data)

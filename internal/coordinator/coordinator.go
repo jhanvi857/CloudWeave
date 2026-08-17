@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"cloudWeave/internal/metadata"
@@ -15,6 +16,9 @@ type Coordinator struct {
 	metaStore  *metadata.Store
 	localAddr  string
 	localStore *storage.DiskStore
+
+	httpClient    *http.Client
+	clusterSecret string
 
 	N int // Replication factor
 	W int // Write quorum
@@ -41,6 +45,15 @@ func NewCoordinator(r *ring.Ring, meta *metadata.Store, localAddr string, localS
 		R:          req,
 	}
 }
+
+func (c *Coordinator) SetHTTPClient(client *http.Client) {
+	c.httpClient = client
+}
+
+func (c *Coordinator) SetClusterSecret(secret string) {
+	c.clusterSecret = secret
+}
+
 
 // PutChunk satisfies api.ChunkStorageEngine interface by fanning out chunk to N nodes from ring.
 func (c *Coordinator) PutChunk(chunkID string, data []byte) ([]string, error) {

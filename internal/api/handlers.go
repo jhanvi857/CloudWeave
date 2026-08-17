@@ -58,14 +58,15 @@ func (l *LocalStorageAdapter) GetChunk(chunkID string, locations []string) ([]by
 }
 
 type APIHandler struct {
-	metaStore  *metadata.Store
-	engine     ChunkStorageEngine
-	chunkSize  int
-	auth       *auth.Authenticator
-	peerMgr    PeerManager
-	localAddr  string
-	httpClient *http.Client
-	wal        *metadata.WAL
+	metaStore      *metadata.Store
+	engine         ChunkStorageEngine
+	chunkSize      int
+	auth           *auth.Authenticator
+	peerMgr        PeerManager
+	localAddr      string
+	httpClient     *http.Client
+	wal            *metadata.WAL
+	clusterSecret  string
 }
 
 func NewAPIHandler(metaStore *metadata.Store, engine ChunkStorageEngine, chunkSize int) *APIHandler {
@@ -126,6 +127,20 @@ func (a *APIHandler) GetLocalAddr() string {
 	return a.localAddr
 }
 
+func (a *APIHandler) SetClusterSecret(secret string) {
+	a.clusterSecret = secret
+}
+
+// validateInput checks namespace and fileID for path traversal characters.
+func validateInput(ns, fileID string) bool {
+	for _, s := range []string{ns, fileID} {
+		if strings.Contains(s, "..") || strings.Contains(s, "\x00") || strings.Contains(s, "\\") {
+			return false
+		}
+	}
+	return true
+}
+
 func (a *APIHandler) HandleFiles(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -154,6 +169,11 @@ func (a *APIHandler) HandleFiles(w http.ResponseWriter, r *http.Request) {
 
 		if !cred.CanAccessNamespace(namespace) {
 			http.Error(w, "forbidden: insufficient permissions for namespace", http.StatusForbidden)
+			return
+		}
+
+		if !validateInput(namespace, fileID) {
+			http.Error(w, "invalid namespace or file ID", http.StatusBadRequest)
 			return
 		}
 
@@ -246,7 +266,7 @@ func (a *APIHandler) handlePutFile(w http.ResponseWriter, r *http.Request, names
 
 	if err != nil {
 		log.Printf("streaming put file %s failed: %v", fileID, err)
-		http.Error(w, fmt.Sprintf("upload failed: %v", err), http.StatusBadRequest)
+		http.Error(w, "upload failed", http.StatusBadRequest)
 		return
 	}
 
@@ -594,6 +614,9 @@ func (a *APIHandler) BroadcastManifest(m metadata.Manifest) {
 				return
 			}
 			req.Header.Set("Content-Type", "application/json")
+			if a.clusterSecret != "" {
+				req.Header.Set("X-Cluster-Secret", a.clusterSecret)
+			}
 			resp, err := a.httpClient.Do(req)
 			if err == nil && resp != nil {
 				resp.Body.Close()
@@ -618,6 +641,9 @@ func (a *APIHandler) BroadcastDelete(ns, fileID string) {
 			if err != nil {
 				return
 			}
+			if a.clusterSecret != "" {
+				req.Header.Set("X-Cluster-Secret", a.clusterSecret)
+			}
 			resp, err := a.httpClient.Do(req)
 			if err == nil && resp != nil {
 				resp.Body.Close()
@@ -640,6 +666,9 @@ func (a *APIHandler) BroadcastJoin(nodeAddr string) {
 			if err != nil {
 				return
 			}
+			if a.clusterSecret != "" {
+				req.Header.Set("X-Cluster-Secret", a.clusterSecret)
+			}
 			resp, err := a.httpClient.Do(req)
 			if err == nil && resp != nil {
 				resp.Body.Close()
@@ -661,6 +690,9 @@ func (a *APIHandler) BroadcastLeave(nodeAddr string) {
 			req, err := http.NewRequest(http.MethodPost, targetPeer+"/internal/leave?node_addr="+url.QueryEscape(nodeAddr), nil)
 			if err != nil {
 				return
+			}
+			if a.clusterSecret != "" {
+				req.Header.Set("X-Cluster-Secret", a.clusterSecret)
 			}
 			resp, err := a.httpClient.Do(req)
 			if err == nil && resp != nil {
@@ -814,5 +846,47 @@ func (a *APIHandler) HandleAdminKill(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Node %s simulated failure trigger sent\n", targetAddr)
+}
+
+// HandleInternalRevokeKey receives cluster-wide key revocation broadcasts from peers.
+func (a *APIHandler) HandleInternalRevokeKey(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	keyHash := r.URL.Query().Get("key_hash")
+	if keyHash == "" {
+		http.Error(w, "missing key_hash parameter", http.StatusBadRequest)
+		return
+	}
+	if a.auth != nil {
+		a.auth.RevokeCredentialByHash(keyHash)
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// BroadcastKeyRevocation sends key revocation to all active peers.
+func (a *APIHandler) BroadcastKeyRevocation(keyHash string) {
+	if a.peerMgr == nil {
+		return
+	}
+	for _, peer := range a.peerMgr.GetActiveNodes() {
+		if peer == a.localAddr || peer == "" {
+			continue
+		}
+		go func(targetPeer string) {
+			req, err := http.NewRequest(http.MethodPost, targetPeer+"/internal/revoke-key?key_hash="+url.QueryEscape(keyHash), nil)
+			if err != nil {
+				return
+			}
+			if a.clusterSecret != "" {
+				req.Header.Set("X-Cluster-Secret", a.clusterSecret)
+			}
+			resp, err := a.httpClient.Do(req)
+			if err == nil && resp != nil {
+				resp.Body.Close()
+			}
+		}(peer)
+	}
 }
 

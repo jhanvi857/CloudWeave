@@ -31,9 +31,18 @@ var (
 	}
 )
 
+func DefaultPooledClient() *http.Client {
+	return defaultPooledClient
+}
+
+func DefaultTransport() *http.Transport {
+	return defaultTransport.Clone()
+}
+
 type Client struct {
-	httpClient *http.Client
-	peerAddr   string
+	httpClient    *http.Client
+	peerAddr      string
+	clusterSecret string
 }
 
 func NewClient(peerAddr string) *Client {
@@ -41,13 +50,26 @@ func NewClient(peerAddr string) *Client {
 }
 
 func NewClientWithHTTPClient(peerAddr string, httpClient *http.Client) *Client {
+	return NewClientWithHTTPClientAndSecret(peerAddr, httpClient, "")
+}
+
+func NewClientWithSecret(peerAddr string, clusterSecret string) *Client {
+	return NewClientWithHTTPClientAndSecret(peerAddr, defaultPooledClient, clusterSecret)
+}
+
+func NewClientWithHTTPClientAndSecret(peerAddr string, httpClient *http.Client, clusterSecret string) *Client {
 	if httpClient == nil {
 		httpClient = defaultPooledClient
 	}
 	return &Client{
-		httpClient: httpClient,
-		peerAddr:   peerAddr,
+		httpClient:    httpClient,
+		peerAddr:      peerAddr,
+		clusterSecret: clusterSecret,
 	}
+}
+
+func (c *Client) SetClusterSecret(secret string) {
+	c.clusterSecret = secret
 }
 
 func (c *Client) PutChunk(ctx context.Context, chunkID string, data []byte) error {
@@ -55,6 +77,9 @@ func (c *Client) PutChunk(ctx context.Context, chunkID string, data []byte) erro
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
+	}
+	if c.clusterSecret != "" {
+		req.Header.Set("X-Cluster-Secret", c.clusterSecret)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -75,6 +100,9 @@ func (c *Client) GetChunk(ctx context.Context, chunkID string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("building request: %w", err)
 	}
+	if c.clusterSecret != "" {
+		req.Header.Set("X-Cluster-Secret", c.clusterSecret)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -94,6 +122,9 @@ func (c *Client) DeleteChunk(ctx context.Context, chunkID string) error {
 	if err != nil {
 		return fmt.Errorf("building delete request: %w", err)
 	}
+	if c.clusterSecret != "" {
+		req.Header.Set("X-Cluster-Secret", c.clusterSecret)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -106,4 +137,5 @@ func (c *Client) DeleteChunk(ctx context.Context, chunkID string) error {
 	}
 	return nil
 }
+
 

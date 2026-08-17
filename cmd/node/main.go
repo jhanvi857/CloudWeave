@@ -59,6 +59,7 @@ func main() {
 	tlsCA := flag.String("tls-ca", getEnvOrDefault("CLOUDWEAVE_TLS_CA", ""), "path to CA bundle file for node-to-node TLS verification")
 	tlsClientAuth := flag.String("tls-client-auth", getEnvOrDefault("CLOUDWEAVE_TLS_CLIENT_AUTH", "verify-if-given"), "TLS client auth mode: 'require' (strict mTLS for all), 'verify-if-given' (mTLS for peers, API keys for clients), 'none'")
 	tlsSkipVerify := flag.Bool("tls-insecure-skip-verify", os.Getenv("CLOUDWEAVE_TLS_SKIP_VERIFY") == "true", "skip TLS certificate verification for development")
+	clusterSecretFlag := flag.String("cluster-secret", getEnvOrDefault("CLOUDWEAVE_CLUSTER_SECRET", ""), "shared secret for inter-node authentication")
 	flag.Parse()
 
 	if *dataDir == "" {
@@ -99,14 +100,18 @@ func main() {
 			}
 		}
 		log.Printf("[TLS] Enabled end-to-end TLS encryption for client API and node-to-node mesh")
+		if *tlsSkipVerify {
+			log.Printf("[SECURITY WARNING] TLS certificate verification is DISABLED — do not use in production")
+		}
 	}
 
 	var nodeHttpClient *http.Client
 	if tlsConfig != nil {
-		tr := &http.Transport{TLSClientConfig: tlsConfig}
-		nodeHttpClient = &http.Client{Timeout: 5 * time.Second, Transport: tr}
+		tlsTr := transport.DefaultTransport()
+		tlsTr.TLSClientConfig = tlsConfig
+		nodeHttpClient = &http.Client{Timeout: 10 * time.Second, Transport: tlsTr}
 	} else {
-		nodeHttpClient = &http.Client{Timeout: 5 * time.Second}
+		nodeHttpClient = transport.DefaultPooledClient()
 	}
 
 	scheme := "http"
@@ -216,6 +221,8 @@ func main() {
 	hashRing := ring.New()
 
 	repairMgr := replication.NewRepairManager(metaStore, hashRing, *nFlag, localAddr, diskStore)
+	repairMgr.SetHTTPClient(nodeHttpClient)
+	repairMgr.SetClusterSecret(*clusterSecretFlag)
 	workerPool := replication.NewRepairWorkerPool(repairMgr, 2)
 	defer workerPool.Stop()
 
@@ -239,11 +246,15 @@ func main() {
 	}
 
 	heartbeat := cluster.NewHeartbeatChecker(membership, 2*time.Second, 5*time.Second)
+	heartbeat.SetHTTPClient(nodeHttpClient)
+	heartbeat.SetClusterSecret(*clusterSecretFlag)
 	heartbeat.Start()
 	defer heartbeat.Stop()
 
 	// 4. Quorum Coordinator & Garbage Collector
 	coord := coordinator.NewCoordinator(hashRing, metaStore, localAddr, diskStore, *nFlag, *wFlag, *rFlag)
+	coord.SetHTTPClient(nodeHttpClient)
+	coord.SetClusterSecret(*clusterSecretFlag)
 	gcEngine := gc.NewGarbageCollector(metaStore, diskStore)
 
 	// 5. API Handler & Transport Server
@@ -251,20 +262,32 @@ func main() {
 	apiHandler.SetPeerManager(membership, localAddr)
 	apiHandler.SetWAL(wal)
 	apiHandler.SetHTTPClient(nodeHttpClient)
+	apiHandler.SetClusterSecret(*clusterSecretFlag)
 
 	transportServer := transport.NewServer(diskStore)
-	router := api.NewRouter(apiHandler, transportServer.Handler(), gcEngine, authenticator)
+	router := api.NewRouterWithClusterSecret(apiHandler, transportServer.Handler(), gcEngine, *clusterSecretFlag, authenticator)
+
 
 	serverAddr := ":" + *port
+	srv := &http.Server{
+		Addr:              serverAddr,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		WriteTimeout:      10 * time.Minute,
+		IdleTimeout:       120 * time.Second,
+	}
+
 	if tlsConfig != nil {
+		srv.TLSConfig = tlsConfig
 		log.Printf("[Main] Node listening on %s (HTTPS/TLS), storing data in %s", serverAddr, *dataDir)
-		if err := http.ListenAndServeTLS(serverAddr, *tlsCert, *tlsKey, router); err != nil {
+		if err := srv.ListenAndServeTLS(*tlsCert, *tlsKey); err != nil {
 			log.Fatalf("server exit: %v", err)
 			os.Exit(1)
 		}
 	} else {
 		log.Printf("[Main] Node listening on %s (HTTP), storing data in %s", serverAddr, *dataDir)
-		if err := http.ListenAndServe(serverAddr, router); err != nil {
+		if err := srv.ListenAndServe(); err != nil {
 			log.Fatalf("server exit: %v", err)
 			os.Exit(1)
 		}
