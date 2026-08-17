@@ -29,7 +29,7 @@ func main() {
 	command := os.Args[1]
 
 	endpoint := getEnvOrDefault("CLOUDWEAVE_ENDPOINT", "http://localhost:9000")
-	apiKey := getEnvOrDefault("CLOUDWEAVE_API_KEY", "default-admin-key")
+	apiKey := getEnvOrDefault("CLOUDWEAVE_API_KEY", "")
 	passphrase := getEnvOrDefault("CLOUDWEAVE_ENCRYPT_PASSPHRASE", "")
 
 	switch command {
