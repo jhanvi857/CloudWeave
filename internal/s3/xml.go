@@ -3,9 +3,11 @@ package s3
 import (
 	"encoding/xml"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 )
+
 
 const S3Namespace = "http://s3.amazonaws.com/doc/2006-03-01/"
 
@@ -112,14 +114,21 @@ func WriteXML(w http.ResponseWriter, statusCode int, v interface{}) {
 	_ = xml.NewEncoder(w).Encode(v)
 }
 
-// WriteError renders a standard S3 XML error payload.
+// WriteError renders a standard S3 XML error payload with global error message sanitization (finding #25).
 func WriteError(w http.ResponseWriter, statusCode int, code, message, resource string) {
+
 	reqID := fmt.Sprintf("%d", time.Now().UnixNano())
+	cleanMsg := message
+	if statusCode >= 500 || code == "InternalError" {
+		log.Printf("[S3 Error %s] %s (resource: %s, reqID: %s)", code, message, resource, reqID)
+		cleanMsg = "We encountered an internal error. Please try again."
+	}
 	errRes := ErrorResult{
 		Code:      code,
-		Message:   message,
+		Message:   cleanMsg,
 		Resource:  resource,
 		RequestId: reqID,
 	}
 	WriteXML(w, statusCode, errRes)
 }
+

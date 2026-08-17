@@ -84,6 +84,12 @@ func (a *AWSChunkedReader) Read(p []byte) (int, error) {
 			return 0, fmt.Errorf("invalid aws-chunked header %q: %w", line, parseErr)
 		}
 
+		// Reject absurdly large chunk sizes to prevent resource exhaustion (finding #10)
+		const maxAWSChunkedSize = 64 * 1024 * 1024 // 64 MiB
+		if chunkSize > maxAWSChunkedSize {
+			return 0, fmt.Errorf("aws-chunked: chunk size %d exceeds maximum allowed %d", chunkSize, maxAWSChunkedSize)
+		}
+
 		a.currentSig = extractChunkSignature(line)
 		if a.validator != nil {
 			a.currentHasher = sha256.New()
