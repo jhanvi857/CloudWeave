@@ -7,10 +7,12 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"cloudWeave/internal/auth"
 )
@@ -101,6 +103,23 @@ func VerifySigV4(r *http.Request, authenticator *auth.Authenticator) (*SigV4Auth
 
 	if amzDate != "" && len(amzDate) >= 8 && dateStamp == "" {
 		dateStamp = amzDate[:8]
+	}
+
+	// Replay protection: validate request timestamp is within ±15 minutes (finding #3)
+	if amzDate != "" {
+		var reqTime time.Time
+		var parseErr error
+		if len(amzDate) >= 16 {
+			reqTime, parseErr = time.Parse("20060102T150405Z", amzDate)
+		} else if len(amzDate) == 8 {
+			reqTime, parseErr = time.Parse("20060102", amzDate)
+		}
+		if parseErr == nil && !reqTime.IsZero() {
+			skew := math.Abs(time.Since(reqTime).Minutes())
+			if skew > 15 {
+				return nil, fmt.Errorf("SignatureDoesNotMatch: request timestamp is too skewed")
+			}
+		}
 	}
 
 	// 1. Read request body if payload hash needs to be computed

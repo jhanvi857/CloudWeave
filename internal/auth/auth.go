@@ -193,7 +193,9 @@ func (a *Authenticator) GetAllCredentials() []Credential {
 
 	result := make([]Credential, 0, len(a.keys))
 	for _, c := range a.keys {
-		result = append(result, *c)
+		safe := *c
+		safe.RawKey = "" // Never expose raw keys via listing (finding #20)
+		result = append(result, safe)
 	}
 	return result
 }

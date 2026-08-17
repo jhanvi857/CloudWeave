@@ -502,12 +502,18 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
+        // XSS protection: escape HTML entities in server-derived data (finding #11)
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
         function addLog(msg) {
             const container = document.getElementById('eventLogs');
             const line = document.createElement('div');
             line.className = 'log-line';
             const time = new Date().toLocaleTimeString();
-            line.innerHTML = `<span class="log-time">[${time}]</span> ${msg}`;
+            line.innerHTML = `<span class="log-time">[${time}]</span> ${escapeHtml(msg)}`;
             container.appendChild(line);
             container.scrollTop = container.scrollHeight;
         }
@@ -562,8 +568,8 @@
                     storedObjects.forEach(obj => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
-                            <td class="node-addr" style="color:var(--orange);">${obj.file_id}</td>
-                            <td><span style="color:var(--text-muted);">${obj.namespace || 'default'}</span></td>
+                            <td class="node-addr" style="color:var(--orange);">${escapeHtml(obj.file_id)}</td>
+                            <td><span style="color:var(--text-muted);">${escapeHtml(obj.namespace || 'default')}</span></td>
                             <td style="font-family:'JetBrains Mono', monospace;">${formatBytes(obj.size)}</td>
                             <td><span class="status-tag tag-alive">${obj.chunk_count} Chunks</span></td>
                         `;
@@ -582,7 +588,7 @@
                         const isAlive = node.is_alive !== undefined ? node.is_alive : (data.active_nodes && data.active_nodes.includes(node.addr));
 
                         tr.innerHTML = `
-                            <td class="node-addr">${node.addr} ${node.is_local ? '<span style="color:var(--orange); font-size:0.75rem;">(this node)</span>' : ''}</td>
+                            <td class="node-addr">${escapeHtml(node.addr)} ${node.is_local ? '<span style="color:var(--orange); font-size:0.75rem;">(this node)</span>' : ''}</td>
                             <td>${node.is_local ? 'Coordinator / Replica' : 'Storage Peer'}</td>
                             <td>
                                 <span class="status-tag ${isAlive ? 'tag-alive' : 'tag-dead'}">
@@ -590,7 +596,7 @@
                                 </span>
                             </td>
                             <td>
-                                ${isAlive ? `<button type="button" class="btn btn-kill" onclick="killNode('${node.addr}')">Kill Node</button>` : '<span style="color:var(--text-muted); font-size:0.78rem;">Offline</span>'}
+                                ${isAlive ? `<button type="button" class="btn btn-kill" onclick="killNode('${escapeHtml(node.addr)}')">Kill Node</button>` : '<span style="color:var(--text-muted); font-size:0.78rem;">Offline</span>'}
                             </td>
                         `;
                         tbody.appendChild(tr);

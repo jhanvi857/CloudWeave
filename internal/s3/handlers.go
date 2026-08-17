@@ -666,7 +666,7 @@ func (s *S3Handler) handleCompleteMultipartUpload(w http.ResponseWriter, r *http
 		ETag       string
 	}
 
-	bodyBytes, _ := io.ReadAll(r.Body)
+	bodyBytes, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MiB max CompleteMultipartUpload XML body (finding #13)
 	if len(bodyBytes) > 0 {
 		var reqBody CompleteMultipartUpload
 		if err := xml.Unmarshal(bodyBytes, &reqBody); err == nil && len(reqBody.Parts) > 0 {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 	"time"
 
@@ -20,7 +21,11 @@ type RepairManager struct {
 	N          int
 	localAddr  string
 	localStore *storage.DiskStore
-	mu         sync.Mutex
+
+	httpClient    *http.Client
+	clusterSecret string
+
+	mu sync.Mutex
 }
 
 func NewRepairManager(meta *metadata.Store, r *ring.Ring, n int, localAddr string, localStore *storage.DiskStore) *RepairManager {
@@ -34,6 +39,14 @@ func NewRepairManager(meta *metadata.Store, r *ring.Ring, n int, localAddr strin
 		localAddr:  localAddr,
 		localStore: localStore,
 	}
+}
+
+func (rm *RepairManager) SetHTTPClient(client *http.Client) {
+	rm.httpClient = client
+}
+
+func (rm *RepairManager) SetClusterSecret(secret string) {
+	rm.clusterSecret = secret
 }
 
 // RepairDeadNode scans all manifests for chunks stored on deadNodeAddr, finds surviving replicas, and replicates to missing target nodes.
@@ -129,7 +142,7 @@ func (rm *RepairManager) fetchChunkFromSurvivors(chunkID string, survivors []str
 				return data, nil
 			}
 		} else {
-			client := transport.NewClient(s)
+			client := transport.NewClientWithHTTPClientAndSecret(s, rm.httpClient, rm.clusterSecret)
 			data, err := client.GetChunk(ctx, chunkID)
 			if err == nil {
 				return data, nil
@@ -147,6 +160,7 @@ func (rm *RepairManager) writeChunkToNode(chunkID string, data []byte, targetNod
 		return rm.localStore.Put(chunkID, data)
 	}
 
-	client := transport.NewClient(targetNode)
+	client := transport.NewClientWithHTTPClientAndSecret(targetNode, rm.httpClient, rm.clusterSecret)
 	return client.PutChunk(ctx, chunkID, data)
 }
+

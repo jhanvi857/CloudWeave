@@ -78,13 +78,25 @@ func SplitCDC(data []byte, minSize, maxSize int) ([]Chunk, error) {
 				maxLimit = len(data)
 			}
 
+			// Dynamic mask for target average chunk size
+			avgSize := (minSize + maxSize) / 4
+			mask := uint32(0x00001FFF)
+			if avgSize > 0 {
+				var m uint32 = 1
+				for int(m) < avgSize {
+					m = (m << 1) | 1
+				}
+				mask = m >> 1
+			}
+
 			for i := end; i < maxLimit; i++ {
 				fp = (fp << 1) + gearTable[data[i]]
-				if (fp & CDCMask) == 0 {
+				if (fp & mask) == 0 {
 					end = i + 1
 					break
 				}
 			}
+
 
 			if end == offset+minSize && maxLimit < len(data) {
 				// If no boundary matched before maxSize, cut at maxLimit

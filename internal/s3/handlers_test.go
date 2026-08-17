@@ -575,14 +575,15 @@ func TestS3AWSChunkedSignatureValidation(t *testing.T) {
 	secretKey := "AKIAIOSFODNN7EXAMPLE"
 	authenticator.AddRawKey(accessKey, []string{"*"}, true)
 
-	dateStamp := "20260816"
-	amzDate := "20260816T120000Z"
+	now := time.Now().UTC()
+	dateStamp := now.Format("20060102")
+	amzDate := now.Format("20060102T150405Z")
 	region := "us-east-1"
 	service := "s3"
 	scope := fmt.Sprintf("%s/%s/%s/aws4_request", dateStamp, region, service)
 	signingKey := deriveSigningKey(secretKey, dateStamp, region, service)
 
-	canonicalHeaders := "host:localhost:8080\nx-amz-content-sha256:STREAMING-AWS4-HMAC-SHA256-PAYLOAD\nx-amz-date:20260816T120000Z\n"
+	canonicalHeaders := fmt.Sprintf("host:localhost:8080\nx-amz-content-sha256:STREAMING-AWS4-HMAC-SHA256-PAYLOAD\nx-amz-date:%s\n", amzDate)
 	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
 	canonicalReq := fmt.Sprintf("PUT\n/sig-bucket/valid.txt\n\n%s\n%s\nSTREAMING-AWS4-HMAC-SHA256-PAYLOAD", canonicalHeaders, signedHeaders)
 	reqHash := sha256.Sum256([]byte(canonicalReq))
@@ -665,14 +666,25 @@ func TestS3AWSChunkedSignatureValidation(t *testing.T) {
 	}
 }
 
+type discardMockEngine struct{}
+
+func (d *discardMockEngine) PutChunk(chunkID string, data []byte) ([]string, error) {
+	return []string{"node1"}, nil
+}
+
+func (d *discardMockEngine) GetChunk(chunkID string, locations []string) ([]byte, error) {
+	return nil, nil
+}
+
 func TestS3ConcurrentStreamingMemoryBounded(t *testing.T) {
 	metaStore := metadata.NewStore()
-	engine := newMockEngine()
+	engine := &discardMockEngine{}
 	authenticator := auth.NewDefaultAuthenticator()
 	// Use production DefaultChunkSize (1MB) instead of 1KB test override
 	handler := NewS3Handler(metaStore, engine, DefaultChunkSize, authenticator)
 	rawKey := "test-admin-key-123"
 	authenticator.AddRawKey(rawKey, []string{"*"}, true)
+
 
 	t.Logf("[Memory Accounting - Production Config] Handler Chunk Size: %d bytes (%.2f KB / %.2f MB)",
 		handler.chunkSize, float64(handler.chunkSize)/1024, float64(handler.chunkSize)/(1024*1024))

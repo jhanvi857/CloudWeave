@@ -7,7 +7,16 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"sync"
 )
+
+
+var defaultBufferPool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, 1024*1024)
+		return &b
+	},
+}
 
 func Split(data []byte, chunkSize int) ([]Chunk, error) {
 	if chunkSize <= 0 {
@@ -40,7 +49,15 @@ func SplitStream(r io.Reader, chunkSize int, processChunk func(c Chunk) error) (
 		return 0, nil, fmt.Errorf("chunk size must be positive, got %d", chunkSize)
 	}
 
-	buf := make([]byte, chunkSize)
+	var buf []byte
+	if chunkSize == 1024*1024 {
+		bufPtr := defaultBufferPool.Get().(*[]byte)
+		buf = *bufPtr
+		defer defaultBufferPool.Put(bufPtr)
+	} else {
+		buf = make([]byte, chunkSize)
+	}
+
 	var totalBytes int64
 	var chunkIDs []string
 	idx := 0
