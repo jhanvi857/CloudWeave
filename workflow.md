@@ -53,12 +53,10 @@ cloudWeave/
 │   │   ├── chunker_test.go         # Chunker unit tests
 │   │   └── cdc_test.go             # FastCDC unit tests
 │   ├── cluster/
-│   │   ├── membership.go           # Active node state tracking and ring integration
-│   │   ├── heartbeat.go            # Periodic /health ping failure detector
-│   │   └── cluster_test.go         # Cluster membership tests
-│   ├── consensus/
-│   │   ├── raft.go                 # Raft log state machine scaffolding
-│   │   └── raft_test.go            # Consensus unit tests
+│   │   ├── membership.go           # Active node state tracking with flap-damping and ring integration
+│   │   ├── heartbeat.go            # Periodic /health ping failure detector (consecutive miss thresholds)
+│   │   ├── anti_entropy.go         # Periodic background Anti-Entropy metadata reconciliation daemon (30s)
+│   │   └── cluster_test.go         # Cluster membership and anti-entropy tests
 │   ├── coordinator/
 │   │   ├── coordinator.go          # Quorum coordinator struct and interfaces
 │   │   ├── write.go                # Parallel write fan-out with W quorum ACK verification
@@ -96,6 +94,7 @@ cloudWeave/
 │   │   └── sigv4_test.go           # SigV4 auth verification tests
 │   ├── storage/
 │   │   ├── diskstore.go            # Local chunk storage on filesystem (atomic writes, path traversal guard)
+│   │   ├── inflight.go             # In-flight upload chunk registry (prevents mid-stream GC race conditions)
 │   │   ├── lru.go                  # Thread-safe in-memory LRU chunk cache (64MB default)
 │   │   └── diskstore_test.go       # Storage unit tests
 │   ├── transport/
@@ -408,7 +407,7 @@ cli, err := client.New(client.Config{
     Namespace:            "analytics",
     EnableAutoDiscovery: true,              // Automatically polls GET /cluster/nodes every 30s
     MaxRetries:          3,                 // Automatic failover retry across healthy endpoints
-    EncryptionPassphrase: "user-password",   // Zero-knowledge AES-256-GCM + Argon2id client encryption
+    EncryptionPassphrase: "user-password",   // Client-side AES-256-GCM + Argon2id client encryption
 })
 
 // 2. Upload Object (transparently encrypted & chunked)
