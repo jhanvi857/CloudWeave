@@ -16,7 +16,6 @@ import (
 	"cloudWeave/internal/api"
 	"cloudWeave/internal/auth"
 	"cloudWeave/internal/cluster"
-	"cloudWeave/internal/consensus"
 	"cloudWeave/internal/coordinator"
 	"cloudWeave/internal/gc"
 	"cloudWeave/internal/metadata"
@@ -42,7 +41,37 @@ func getEnvIntOrDefault(envKey string, fallback int) int {
 	return fallback
 }
 
+func loadDotEnv(filenames ...string) {
+	if len(filenames) == 0 {
+		filenames = []string{".env", "../.env", "../../.env"}
+	}
+	for _, filename := range filenames {
+		data, err := os.ReadFile(filename)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			val = strings.Trim(val, `"'`)
+			if key != "" && os.Getenv(key) == "" {
+				_ = os.Setenv(key, val)
+			}
+		}
+	}
+}
+
 func main() {
+	loadDotEnv()
 	port := flag.String("port", getEnvOrDefault("CLOUDWEAVE_PORT", "9000"), "port to listen on")
 	dataDir := flag.String("data", getEnvOrDefault("CLOUDWEAVE_DATA", "./data"), "directory to store chunks in")
 	peersFlag := flag.String("peers", getEnvOrDefault("CLOUDWEAVE_PEERS", ""), "comma-separated list of peer HTTP node addresses")
@@ -207,16 +236,6 @@ func main() {
 		log.Printf("================================================================================")
 	}
 
-	// Raft Consensus Engine (Replicated Log State Machine)
-	var peerAddrs []string
-	if *peersFlag != "" {
-		peerAddrs = strings.Split(*peersFlag, ",")
-	}
-	raftEngine := consensus.NewRaftNode(localAddr, peerAddrs, metaStore)
-	raftEngine.Start()
-	defer raftEngine.Stop()
-	raftEngine.ForceLeader()
-
 	// 3. Ring & Cluster Membership
 	hashRing := ring.New()
 
@@ -245,17 +264,25 @@ func main() {
 		}
 	}
 
-	heartbeat := cluster.NewHeartbeatChecker(membership, 2*time.Second, 5*time.Second)
+	heartbeat := cluster.NewHeartbeatChecker(membership, 2*time.Second, 8*time.Second)
 	heartbeat.SetHTTPClient(nodeHttpClient)
 	heartbeat.SetClusterSecret(*clusterSecretFlag)
 	heartbeat.Start()
 	defer heartbeat.Stop()
+
+	// Anti-Entropy Periodic Reconciler (Reconciles missing manifests across peers)
+	reconciler := cluster.NewAntiEntropyReconciler(metaStore, membership, localAddr, 30*time.Second)
+	reconciler.SetHTTPClient(nodeHttpClient)
+	reconciler.SetClusterSecret(*clusterSecretFlag)
+	reconciler.Start()
+	defer reconciler.Stop()
 
 	// 4. Quorum Coordinator & Garbage Collector
 	coord := coordinator.NewCoordinator(hashRing, metaStore, localAddr, diskStore, *nFlag, *wFlag, *rFlag)
 	coord.SetHTTPClient(nodeHttpClient)
 	coord.SetClusterSecret(*clusterSecretFlag)
 	gcEngine := gc.NewGarbageCollector(metaStore, diskStore)
+	gcEngine.SetInFlightRegistry(diskStore.GetInFlightRegistry())
 
 	// 5. API Handler & Transport Server
 	apiHandler := api.NewAPIHandler(metaStore, coord, api.DefaultChunkSize)
@@ -263,6 +290,8 @@ func main() {
 	apiHandler.SetWAL(wal)
 	apiHandler.SetHTTPClient(nodeHttpClient)
 	apiHandler.SetClusterSecret(*clusterSecretFlag)
+	apiHandler.SetDiskStore(diskStore)
+	apiHandler.SetInFlightRegistry(diskStore.GetInFlightRegistry())
 
 	transportServer := transport.NewServer(diskStore)
 	router := api.NewRouterWithClusterSecret(apiHandler, transportServer.Handler(), gcEngine, *clusterSecretFlag, authenticator)

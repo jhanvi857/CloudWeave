@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"cloudWeave/client"
 )
@@ -20,7 +21,38 @@ func getEnvOrDefault(envKey, fallback string) string {
 	return fallback
 }
 
+func loadDotEnv(filenames ...string) {
+	if len(filenames) == 0 {
+		filenames = []string{".env", "../.env", "../../.env"}
+	}
+	for _, filename := range filenames {
+		data, err := os.ReadFile(filename)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			val = strings.Trim(val, `"'`)
+			if key != "" && os.Getenv(key) == "" {
+				_ = os.Setenv(key, val)
+			}
+		}
+	}
+}
+
 func main() {
+	loadDotEnv()
+
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
@@ -28,8 +60,8 @@ func main() {
 
 	command := os.Args[1]
 
-	endpoint := getEnvOrDefault("CLOUDWEAVE_ENDPOINT", "http://localhost:9000")
-	apiKey := getEnvOrDefault("CLOUDWEAVE_API_KEY", "")
+	endpoint := getEnvOrDefault("CLOUDWEAVE_ENDPOINT", getEnvOrDefault("AWS_ENDPOINT_URL", "http://localhost:9000"))
+	apiKey := getEnvOrDefault("CLOUDWEAVE_API_KEY", getEnvOrDefault("AWS_SECRET_ACCESS_KEY", getEnvOrDefault("AWS_ACCESS_KEY_ID", "")))
 	passphrase := getEnvOrDefault("CLOUDWEAVE_ENCRYPT_PASSPHRASE", "")
 
 	switch command {

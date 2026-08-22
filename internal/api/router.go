@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"cloudWeave/internal/auth"
+	"cloudWeave/internal/gc"
 	"cloudWeave/internal/metadata"
 	"cloudWeave/internal/metrics"
 	"cloudWeave/internal/s3"
@@ -379,7 +380,16 @@ func NewRouterWithClusterSecret(apiHandler *APIHandler, transportHandler http.Ha
 
 	var s3Handler http.Handler
 	if apiHandler != nil && apiHandler.GetMetaStore() != nil && apiHandler.GetEngine() != nil {
-		s3Handler = s3.NewS3Handler(apiHandler.GetMetaStore(), apiHandler.GetEngine(), apiHandler.GetChunkSize(), authenticator)
+		s3H := s3.NewS3Handler(apiHandler.GetMetaStore(), apiHandler.GetEngine(), apiHandler.GetChunkSize(), authenticator)
+		if apiHandler.GetInFlightRegistry() != nil {
+			s3H.SetInFlightRegistry(apiHandler.GetInFlightRegistry())
+		}
+		if gcRunner != nil {
+			if gcWithMP, ok := gcRunner.(interface{ SetMultipartProvider(p gc.MultipartChunkProvider) }); ok {
+				gcWithMP.SetMultipartProvider(s3H.GetMultipartStore())
+			}
+		}
+		s3Handler = s3H
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

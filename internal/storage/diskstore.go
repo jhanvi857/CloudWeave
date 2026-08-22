@@ -24,10 +24,17 @@ func ValidateChunkID(chunkID string) bool {
 	return validChunkIDPattern.MatchString(chunkID)
 }
 
+type ChunkFileInfo struct {
+	ID      string
+	ModTime time.Time
+	Size    int64
+}
+
 type DiskStore struct {
-	baseDir string
-	mu      sync.RWMutex
-	cache   *ChunkCache
+	baseDir  string
+	mu       sync.RWMutex
+	cache    *ChunkCache
+	inFlight *InFlightRegistry
 }
 
 func NewDiskStore(baseDir string) (*DiskStore, error) {
@@ -38,9 +45,26 @@ func NewDiskStore(baseDir string) (*DiskStore, error) {
 		return nil, fmt.Errorf("creating storage dir %q: %w", baseDir, err)
 	}
 	return &DiskStore{
-		baseDir: baseDir,
-		cache:   NewChunkCache(64 * 1024 * 1024), // 64MB default LRU cache
+		baseDir:  baseDir,
+		cache:    NewChunkCache(64 * 1024 * 1024), // 64MB default LRU cache
+		inFlight: NewInFlightRegistry(),
 	}, nil
+}
+
+func (s *DiskStore) SetInFlightRegistry(reg *InFlightRegistry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.inFlight = reg
+}
+
+func (s *DiskStore) GetInFlightRegistry() *InFlightRegistry {
+	return s.inFlight
+}
+
+func (s *DiskStore) InvalidateChunk(chunkID string) {
+	if s.cache != nil {
+		s.cache.Remove(chunkID)
+	}
 }
 
 func (s *DiskStore) SetCacheSize(maxBytes int64) {
@@ -154,12 +178,24 @@ func (s *DiskStore) Delete(chunkID string) error {
 }
 
 func (s *DiskStore) ListChunks() ([]string, error) {
+	infos, err := s.ListChunkInfos()
+	if err != nil {
+		return nil, err
+	}
+	var chunkIDs []string
+	for _, info := range infos {
+		chunkIDs = append(chunkIDs, info.ID)
+	}
+	return chunkIDs, nil
+}
+
+func (s *DiskStore) ListChunkInfos() ([]ChunkFileInfo, error) {
 	entries, err := os.ReadDir(s.baseDir)
 	if err != nil {
 		return nil, fmt.Errorf("listing storage dir %s: %w", s.baseDir, err)
 	}
 
-	var chunkIDs []string
+	var chunkInfos []ChunkFileInfo
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -168,9 +204,17 @@ func (s *DiskStore) ListChunks() ([]string, error) {
 		if filepath.Ext(name) == ".wal" || filepath.Ext(name) == ".tmp" || (len(name) > 0 && name[0] == '.') {
 			continue
 		}
-		chunkIDs = append(chunkIDs, name)
+		fi, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		chunkInfos = append(chunkInfos, ChunkFileInfo{
+			ID:      name,
+			ModTime: fi.ModTime(),
+			Size:    fi.Size(),
+		})
 	}
-	return chunkIDs, nil
+	return chunkInfos, nil
 }
 
 func (s *DiskStore) pathFor(chunkID string) string {

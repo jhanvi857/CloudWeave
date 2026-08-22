@@ -18,6 +18,7 @@ import (
 	"cloudWeave/internal/chunk"
 	"cloudWeave/internal/metadata"
 	"cloudWeave/internal/metrics"
+	"cloudWeave/internal/storage"
 )
 
 //go:embed dashboard.html
@@ -67,6 +68,8 @@ type APIHandler struct {
 	httpClient     *http.Client
 	wal            *metadata.WAL
 	clusterSecret  string
+	inFlight       *storage.InFlightRegistry
+	diskStore      *storage.DiskStore
 }
 
 func NewAPIHandler(metaStore *metadata.Store, engine ChunkStorageEngine, chunkSize int) *APIHandler {
@@ -79,7 +82,20 @@ func NewAPIHandler(metaStore *metadata.Store, engine ChunkStorageEngine, chunkSi
 		chunkSize:  chunkSize,
 		auth:       auth.NewDefaultAuthenticator(),
 		httpClient: &http.Client{Timeout: 3 * time.Second},
+		inFlight:   storage.NewInFlightRegistry(),
 	}
+}
+
+func (a *APIHandler) SetInFlightRegistry(reg *storage.InFlightRegistry) {
+	a.inFlight = reg
+}
+
+func (a *APIHandler) GetInFlightRegistry() *storage.InFlightRegistry {
+	return a.inFlight
+}
+
+func (a *APIHandler) SetDiskStore(store *storage.DiskStore) {
+	a.diskStore = store
 }
 
 func (a *APIHandler) SetHTTPClient(client *http.Client) {
@@ -215,6 +231,16 @@ func (a *APIHandler) handlePutFile(w http.ResponseWriter, r *http.Request, names
 	}
 	defer r.Body.Close()
 
+	var inFlightRegistered []string
+	var regMu sync.Mutex
+	defer func() {
+		regMu.Lock()
+		if a.inFlight != nil && len(inFlightRegistered) > 0 {
+			a.inFlight.Unregister(inFlightRegistered...)
+		}
+		regMu.Unlock()
+	}()
+
 	var chunkIDs []string
 	chunkLocations := make(map[string][]string)
 	var mu sync.Mutex
@@ -249,6 +275,12 @@ func (a *APIHandler) handlePutFile(w http.ResponseWriter, r *http.Request, names
 		case err := <-errChan:
 			return err
 		default:
+		}
+		if a.inFlight != nil {
+			a.inFlight.Register(c.ID)
+			regMu.Lock()
+			inFlightRegistered = append(inFlightRegistered, c.ID)
+			regMu.Unlock()
 		}
 		jobs <- c
 		return nil
@@ -321,9 +353,9 @@ func (a *APIHandler) handlePutFile(w http.ResponseWriter, r *http.Request, names
 }
 
 func (a *APIHandler) handleDeleteFile(w http.ResponseWriter, r *http.Request, namespace, fileID string) {
-	_, found := a.metaStore.LookupScoped(namespace, fileID)
+	manifestToDel, found := a.metaStore.LookupScoped(namespace, fileID)
 	if !found {
-		_, found = a.metaStore.Lookup(fileID)
+		manifestToDel, found = a.metaStore.Lookup(fileID)
 	}
 	if !found {
 		http.Error(w, "file not found", http.StatusNotFound)
@@ -337,6 +369,12 @@ func (a *APIHandler) handleDeleteFile(w http.ResponseWriter, r *http.Request, na
 	if !deleted {
 		http.Error(w, "failed to delete metadata", http.StatusInternalServerError)
 		return
+	}
+
+	if a.diskStore != nil {
+		for _, cid := range manifestToDel.ChunkIDs {
+			a.diskStore.InvalidateChunk(cid)
+		}
 	}
 
 	a.BroadcastDelete(namespace, fileID)
@@ -705,6 +743,14 @@ func (a *APIHandler) BroadcastLeave(nodeAddr string) {
 // HandleInternalManifest processes node-to-node metadata replication requests.
 func (a *APIHandler) HandleInternalManifest(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
+	case http.MethodGet:
+		if a.metaStore == nil {
+			http.Error(w, "metadata store not initialized", http.StatusInternalServerError)
+			return
+		}
+		all := a.metaStore.GetAllManifests()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(all)
 	case http.MethodPost:
 		var m metadata.Manifest
 		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
