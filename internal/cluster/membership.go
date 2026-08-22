@@ -8,9 +8,10 @@ import (
 )
 
 type NodeInfo struct {
-	Address  string
-	LastSeen time.Time
-	IsAlive  bool
+	Address             string
+	LastSeen            time.Time
+	IsAlive             bool
+	ConsecutiveFailures int
 }
 
 type Membership struct {
@@ -39,6 +40,7 @@ func (m *Membership) AddNode(addr string) {
 	}
 	info.LastSeen = time.Now()
 	info.IsAlive = true
+	info.ConsecutiveFailures = 0
 
 	m.ring.AddNode(addr)
 }
@@ -50,11 +52,34 @@ func (m *Membership) MarkAlive(addr string) {
 	info, exists := m.nodes[addr]
 	if exists {
 		info.LastSeen = time.Now()
+		info.ConsecutiveFailures = 0
 		if !info.IsAlive {
 			info.IsAlive = true
 			m.ring.AddNode(addr)
 		}
 	}
+}
+
+func (m *Membership) RecordFailure(addr string, maxConsecutiveFailures int, deadTimeout time.Duration) bool {
+	m.mu.Lock()
+	dead := false
+
+	info, exists := m.nodes[addr]
+	if exists && info.IsAlive {
+		info.ConsecutiveFailures++
+		if info.ConsecutiveFailures >= maxConsecutiveFailures && time.Since(info.LastSeen) >= deadTimeout {
+			info.IsAlive = false
+			dead = true
+			m.ring.RemoveNode(addr)
+		}
+	}
+	onDeadCallback := m.onNodeDead
+	m.mu.Unlock()
+
+	if dead && onDeadCallback != nil {
+		onDeadCallback(addr)
+	}
+	return dead
 }
 
 func (m *Membership) RemoveNode(addr string) {

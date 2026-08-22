@@ -173,3 +173,20 @@ func (m *MultipartStore) AbortUpload(uploadID string) ([]string, error) {
 	delete(m.uploads, uploadID)
 	return allChunks, nil
 }
+
+// GetActiveChunkIDs returns all chunk IDs held by active, uncommitted multipart uploads.
+func (m *MultipartStore) GetActiveChunkIDs() []string {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var chunks []string
+	for _, rec := range m.uploads {
+		for _, p := range rec.Parts {
+			chunks = append(chunks, p.ChunkIDs...)
+		}
+	}
+	return chunks
+}

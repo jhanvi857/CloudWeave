@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -97,6 +98,14 @@ func (rm *RepairManager) RepairDeadNode(deadNodeAddr string) (int, error) {
 
 			if len(aliveLocs) == 0 || len(neededTargets) == 0 {
 				// No surviving replica available to copy from, or no target node needed
+				continue
+			}
+
+			// Deterministic repair coordinator election:
+			// Lexicographically sort alive survivors so every node independently agrees on the primary coordinator (aliveLocs[0]).
+			// This prevents all surviving nodes from launching duplicate transfers simultaneously regardless of map traversal order.
+			sort.Strings(aliveLocs)
+			if rm.localAddr != "" && len(aliveLocs) > 0 && aliveLocs[0] != rm.localAddr {
 				continue
 			}
 

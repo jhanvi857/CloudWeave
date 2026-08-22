@@ -30,6 +30,11 @@ type ChunkStorageEngine interface {
 	GetChunk(chunkID string, locations []string) ([]byte, error)
 }
 
+type InFlightRecorder interface {
+	Register(chunkIDs ...string)
+	Unregister(chunkIDs ...string)
+}
+
 // S3Handler implements the Amazon S3 REST API surface.
 type S3Handler struct {
 	metaStore *metadata.Store
@@ -37,6 +42,7 @@ type S3Handler struct {
 	auth      *auth.Authenticator
 	chunkSize int
 	mpStore   *MultipartStore
+	inFlight  InFlightRecorder
 }
 
 // NewS3Handler initializes a new S3Handler.
@@ -56,6 +62,14 @@ func NewS3Handler(metaStore *metadata.Store, engine ChunkStorageEngine, chunkSiz
 		chunkSize: chunkSize,
 		mpStore:   NewMultipartStore(),
 	}
+}
+
+func (s *S3Handler) SetInFlightRegistry(inFlight InFlightRecorder) {
+	s.inFlight = inFlight
+}
+
+func (s *S3Handler) GetMultipartStore() *MultipartStore {
+	return s.mpStore
 }
 
 func computeETag(data []byte) string {
@@ -360,7 +374,23 @@ func (s *S3Handler) handlePutObject(w http.ResponseWriter, r *http.Request, buck
 	chunkLocations := make(map[string][]string)
 	var mu sync.Mutex
 
+	var inFlightRegistered []string
+	var regMu sync.Mutex
+	defer func() {
+		regMu.Lock()
+		if s.inFlight != nil && len(inFlightRegistered) > 0 {
+			s.inFlight.Unregister(inFlightRegistered...)
+		}
+		regMu.Unlock()
+	}()
+
 	totalBytes, chunkIDs, err := chunk.SplitStream(reader, s.chunkSize, func(c chunk.Chunk) error {
+		if s.inFlight != nil {
+			s.inFlight.Register(c.ID)
+			regMu.Lock()
+			inFlightRegistered = append(inFlightRegistered, c.ID)
+			regMu.Unlock()
+		}
 		locs, err := s.engine.PutChunk(c.ID, c.Data)
 		if err != nil {
 			return err
