@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  cloudweave:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cloudweave:latest
+    container_name: cloudweave
+    environment:
+      - CLOUDWEAVE_PORT=9000
+      - CLOUDWEAVE_DATA=/data
+      - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-master-secret-key=admin}
+    ports:
+      - "9000:9000"
+    volumes:
+      - cloudweave_data:/data
+    restart: unless-stopped
+
+volumes:
+  cloudweave_data:

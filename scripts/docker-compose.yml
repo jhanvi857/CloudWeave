@@ -10,7 +10,8 @@ services:
       - CLOUDWEAVE_PORT=9000
       - CLOUDWEAVE_DATA=/data
       - CLOUDWEAVE_PEERS=http://node2:9000,http://node3:9000,http://node4:9000,http://node5:9000
-      - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-}
+      - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-master-secret-key=admin}
+      - CLOUDWEAVE_CLUSTER_SECRET=${CLOUDWEAVE_CLUSTER_SECRET:-cloudweave-cluster-secret}
     ports:
       - "9000:9000"
     volumes:
@@ -25,7 +26,8 @@ services:
       - CLOUDWEAVE_PORT=9000
       - CLOUDWEAVE_DATA=/data
       - CLOUDWEAVE_PEERS=http://node1:9000,http://node3:9000,http://node4:9000,http://node5:9000
-      - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-}
+      - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-master-secret-key=admin}
+      - CLOUDWEAVE_CLUSTER_SECRET=${CLOUDWEAVE_CLUSTER_SECRET:-cloudweave-cluster-secret}
     ports:
       - "9001:9000"
     volumes:
@@ -40,7 +42,8 @@ services:
       - CLOUDWEAVE_PORT=9000
       - CLOUDWEAVE_DATA=/data
       - CLOUDWEAVE_PEERS=http://node1:9000,http://node2:9000,http://node4:9000,http://node5:9000
-      - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-}
+      - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-master-secret-key=admin}
+      - CLOUDWEAVE_CLUSTER_SECRET=${CLOUDWEAVE_CLUSTER_SECRET:-cloudweave-cluster-secret}
     ports:
       - "9002:9000"
     volumes:
@@ -55,7 +58,8 @@ services:
       - CLOUDWEAVE_PORT=9000
       - CLOUDWEAVE_DATA=/data
       - CLOUDWEAVE_PEERS=http://node1:9000,http://node2:9000,http://node3:9000,http://node5:9000
-      - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-}
+      - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-master-secret-key=admin}
+      - CLOUDWEAVE_CLUSTER_SECRET=${CLOUDWEAVE_CLUSTER_SECRET:-cloudweave-cluster-secret}
     ports:
       - "9003:9000"
     volumes:
@@ -70,7 +74,8 @@ services:
       - CLOUDWEAVE_PORT=9000
       - CLOUDWEAVE_DATA=/data
       - CLOUDWEAVE_PEERS=http://node1:9000,http://node2:9000,http://node3:9000,http://node4:9000
-      - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-}
+      - CLOUDWEAVE_API_KEYS=${CLOUDWEAVE_API_KEYS:-master-secret-key=admin}
+      - CLOUDWEAVE_CLUSTER_SECRET=${CLOUDWEAVE_CLUSTER_SECRET:-cloudweave-cluster-secret}
     ports:
       - "9004:9000"
     volumes:

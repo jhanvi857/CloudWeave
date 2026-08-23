@@ -37,22 +37,65 @@ Use it to:
 
 ## Quickstart & Failure Demo
 
-### Option 1: Run with Go
+### Option 1: Pull the Prebuilt Image (Recommended)
+
+Pull the prebuilt multi-architecture image from GitHub Container Registry — works on Intel/AMD and Apple Silicon:
+
+```bash
+docker pull ghcr.io/jhanvi857/cloudweave:latest
+```
+
+Run a standalone CloudWeave instance (like MinIO, Redis, or PostgreSQL):
+
+```bash
+docker run -d \
+  --name cloudweave \
+  -p 9000:9000 \
+  --memory=256m \
+  -e CLOUDWEAVE_API_KEYS="master-secret-key=admin" \
+  -v cloudweave_data:/data \
+  ghcr.io/jhanvi857/cloudweave:latest
+```
+
+> **Prebuilt images** are [published on GHCR](https://github.com/jhanvi857/CloudWeave/pkgs/container/cloudweave) for `linux/amd64` and `linux/arm64`. Every image is Trivy-scanned for vulnerabilities and smoke-tested (health check + OOM guard) before promotion.
+
+### Option 2: Run with Docker Compose (5-Node Distributed Cluster)
+
+Spin up a 5-node distributed cluster with automated quorum, failure detection, and self-healing:
+
+```bash
+docker compose up -d
+```
+
+### Option 3: Build from Source
+
+```bash
+# Build image locally
+docker build -t cloudweave:latest .
+
+# Run
+docker run -d \
+  --name cloudweave \
+  -p 9000:9000 \
+  --memory=256m \
+  -e CLOUDWEAVE_API_KEYS="master-secret-key=admin" \
+  -v cloudweave_data:/data \
+  cloudweave:latest
+```
+
+### Option 4: Run with Go (Multi-Node Cluster)
 
 ```bash
 go build -o node.exe ./cmd/node
 
-./node.exe -port 9000 -data-dir ./data/node1 -admin-key "master-secret-key" -peers "http://localhost:9001,http://localhost:9002"
+# Node 1
+./node.exe -port 9000 -data ./data/node1 -api-keys "master-secret-key=admin" -peers "http://localhost:9001,http://localhost:9002"
 
-./node.exe -port 9001 -data-dir ./data/node2 -admin-key "master-secret-key" -peers "http://localhost:9000,http://localhost:9002"
+# Node 2
+./node.exe -port 9001 -data ./data/node2 -api-keys "master-secret-key=admin" -peers "http://localhost:9000,http://localhost:9002"
 
-./node.exe -port 9002 -data-dir ./data/node3 -admin-key "master-secret-key" -peers "http://localhost:9000,http://localhost:9001"
-```
-
-### Option 2: Run with Docker Compose
-
-```bash
-docker compose up -d
+# Node 3
+./node.exe -port 9002 -data ./data/node3 -api-keys "master-secret-key=admin" -peers "http://localhost:9000,http://localhost:9001"
 ```
 
 ### Open the Dashboard
@@ -79,19 +122,15 @@ Cluster becomes healthy again
 
 ## Use It Like S3
 
-### 1. Configure Credentials
+### 1. Configure Client Credentials
 
-CloudWeave supports built-in `.env` file loading on startup or standard shell variables:
+> **Note on Environment Configuration:**
+> - **CloudWeave Node Server (`node.exe` / Docker):** Automatically loads `.env` from the project root on startup for server configuration (`CLOUDWEAVE_*` settings).
+> - **Client Tools (AWS CLI / Boto3 / SDKs):** Read AWS credentials from standard shell environment variables or `~/.aws/credentials`. Export the credentials in your shell before running AWS CLI commands:
 
-**Option A: `.env` file (in project root):**
-```env
-AWS_ACCESS_KEY_ID=master-secret-key
-AWS_SECRET_ACCESS_KEY=master-secret-key
-```
-
-**Option B: Shell environment variables:**
+**Shell environment variables:**
 ```bash
-# Linux / macOS (bash):
+# Linux / macOS (bash / zsh):
 export AWS_ACCESS_KEY_ID="master-secret-key"
 export AWS_SECRET_ACCESS_KEY="master-secret-key"
 
@@ -123,6 +162,63 @@ s3 = boto3.client(
 
 s3.upload_file("video.mp4", "demo", "video.mp4")
 ```
+
+---
+
+## Docker & Container Deployment
+
+### Adding CloudWeave to Your App's `docker-compose.yml`
+
+You can drop CloudWeave directly into your existing development stack alongside Postgres, Redis, or your backend app:
+
+```yaml
+version: '3.8'
+
+services:
+  app:
+    image: my-backend-app:latest
+    environment:
+      - S3_ENDPOINT=http://cloudweave:9000
+      - AWS_ACCESS_KEY_ID=master-secret-key
+      - AWS_SECRET_ACCESS_KEY=master-secret-key
+    depends_on:
+      - cloudweave
+
+  cloudweave:
+    image: ghcr.io/jhanvi857/cloudweave:latest
+    container_name: cloudweave
+    ports:
+      - "9000:9000"
+    mem_limit: 256m
+    environment:
+      - CLOUDWEAVE_API_KEYS=master-secret-key=admin
+    volumes:
+      - cloudweave_data:/data
+    restart: unless-stopped
+
+volumes:
+  cloudweave_data:
+```
+
+### Environment Variables Reference
+
+| Variable | Default | Description |
+|---|---|---|
+| `CLOUDWEAVE_PORT` | `9000` | HTTP/HTTPS port to bind |
+| `CLOUDWEAVE_DATA` | `/data` | Directory for chunk & WAL storage |
+| `CLOUDWEAVE_API_KEYS` | *(auto-generated)* | Initial API key mappings (e.g. `master-secret-key=admin` or `k1=ns1,k2=ns2`) |
+| `CLOUDWEAVE_PEERS` | `""` | Comma-separated list of peer HTTP node addresses for multi-node cluster |
+| `CLOUDWEAVE_CLUSTER_SECRET` | `""` | Shared secret header required for inter-node transport mesh |
+| `CLOUDWEAVE_STORAGE_MODE` | `replication` | Storage engine mode (`replication` or `erasure`) |
+| `CLOUDWEAVE_N` | `3` (cluster) / `1` (standalone) | Total replication factor |
+| `CLOUDWEAVE_W` | `2` (cluster) / `1` (standalone) | Quorum write ACKs required |
+| `CLOUDWEAVE_R` | `2` (cluster) / `1` (standalone) | Quorum read responses required |
+| `CLOUDWEAVE_K` | `4` | Data shards count for erasure coding mode |
+| `CLOUDWEAVE_M` | `2` | Parity shards count for erasure coding mode |
+| `CLOUDWEAVE_TLS_CERT` | `""` | Path to TLS server certificate |
+| `CLOUDWEAVE_TLS_KEY` | `""` | Path to TLS private key |
+| `CLOUDWEAVE_TLS_CA` | `""` | Path to CA bundle for mutual TLS (mTLS) |
+| `CLOUDWEAVE_TLS_CLIENT_AUTH`| `verify-if-given`| mTLS mode (`require`, `verify-if-given`, `none`) |
 
 ---
 

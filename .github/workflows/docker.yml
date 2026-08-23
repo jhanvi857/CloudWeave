@@ -1,0 +1,221 @@
+name: Build and Publish Docker Image
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # Job 1: Build multi-arch image, scan with Trivy, push staging SHA tag
+  # ──────────────────────────────────────────────────────────────────────
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write          # for Trivy SARIF upload
+      id-token: write                 # for build provenance attestation
+      attestations: write
+
+    outputs:
+      image-digest: ${{ steps.build-push.outputs.digest }}
+      # The SHA-short tag is always pushed; semver + latest are added only after smoke test passes.
+      staging-tag: sha-${{ github.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-architecture emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=short
+
+      - name: Build and push Docker image (staging SHA tag only)
+        id: build-push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Trivy vulnerability scan ──────────────────────────────────────
+      # Scan after push so multi-arch manifests are available; fails on Critical.
+      - name: Run Trivy vulnerability scanner
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'              # Don't fail here; we gate below
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        if: github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true       # SARIF upload is best-effort
+
+      - name: Fail on Critical vulnerabilities
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
+          format: 'table'
+          severity: 'CRITICAL'
+          exit-code: '1'              # Hard-fail the job on Critical findings
+
+      # ── Build provenance attestation ──────────────────────────────────
+      - name: Attest build provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build-push.outputs.digest }}
+          push-to-registry: true
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Job 2: Smoke test — pull image & verify /health on amd64 + arm64
+  # ──────────────────────────────────────────────────────────────────────
+  smoke-test:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    strategy:
+      matrix:
+        platform: [ linux/amd64, linux/arm64 ]
+
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and start container (${{ matrix.platform }})
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.image-digest }}"
+          docker run -d \
+            --name cloudweave-smoke \
+            --platform ${{ matrix.platform }} \
+            --memory=256m \
+            -p 9000:9000 \
+            "$IMAGE"
+
+      - name: Wait for healthy (/health endpoint)
+        run: |
+          echo "Waiting for CloudWeave to become healthy..."
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9000/health 2>/dev/null || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ /health returned 200 on attempt $i"
+              exit 0
+            fi
+            echo "  attempt $i: status=$STATUS, retrying in 2s..."
+            sleep 2
+          done
+          echo "❌ /health did not return 200 within 60 seconds"
+          docker logs cloudweave-smoke
+          exit 1
+
+      - name: Verify /healthz endpoint
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9000/healthz)
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ /healthz returned $STATUS instead of 200"
+            exit 1
+          fi
+          echo "✅ /healthz returned 200"
+
+      - name: Verify container is not OOM-killed
+        run: |
+          STATE=$(docker inspect --format='{{.State.OOMKilled}}' cloudweave-smoke)
+          if [ "$STATE" = "true" ]; then
+            echo "❌ Container was OOM-killed"
+            docker logs cloudweave-smoke
+            exit 1
+          fi
+          echo "✅ Container running within 256MB memory limit"
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f cloudweave-smoke || true
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Job 3: Promote — add semver + latest tags after smoke test passes
+  # ──────────────────────────────────────────────────────────────────────
+  promote:
+    needs: [ build, smoke-test ]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install crane
+        uses: imjasonh/setup-crane@v0.4
+
+      - name: Promote to latest (version tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          SOURCE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.image-digest }}"
+          crane tag "$SOURCE" latest
+          echo "✅ Tagged as latest"
+
+      - name: Promote to semver tags (version tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"           # e.g. v1.2.3
+          VERSION="${TAG#v}"                        # e.g. 1.2.3
+          MAJOR_MINOR="${VERSION%.*}"               # e.g. 1.2
+          SOURCE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.image-digest }}"
+
+          crane tag "$SOURCE" "$VERSION"
+          crane tag "$SOURCE" "$MAJOR_MINOR"
+          echo "✅ Tagged as $VERSION and $MAJOR_MINOR"

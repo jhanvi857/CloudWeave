@@ -369,11 +369,13 @@ func NewRouterWithClusterSecret(apiHandler *APIHandler, transportHandler http.Ha
 		})
 	}
 
-	// Health check endpoint
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	// Health check endpoints
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
-	})
+	}
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/healthz", healthHandler)
 
 	// Prometheus metrics endpoint
 	mux.HandleFunc("/metrics", metrics.Handler())
@@ -410,6 +412,7 @@ func NewRouterWithClusterSecret(apiHandler *APIHandler, transportHandler http.Ha
 			!strings.HasPrefix(path, "/admin/") &&
 			!strings.HasPrefix(path, "/chunks/") &&
 			path != "/health" &&
+			path != "/healthz" &&
 			path != "/metrics") {
 			if s3Handler != nil {
 				s3Handler.ServeHTTP(w, r)
