@@ -89,10 +89,35 @@ func main() {
 	tlsClientAuth := flag.String("tls-client-auth", getEnvOrDefault("CLOUDWEAVE_TLS_CLIENT_AUTH", "verify-if-given"), "TLS client auth mode: 'require' (strict mTLS for all), 'verify-if-given' (mTLS for peers, API keys for clients), 'none'")
 	tlsSkipVerify := flag.Bool("tls-insecure-skip-verify", os.Getenv("CLOUDWEAVE_TLS_SKIP_VERIFY") == "true", "skip TLS certificate verification for development")
 	clusterSecretFlag := flag.String("cluster-secret", getEnvOrDefault("CLOUDWEAVE_CLUSTER_SECRET", ""), "shared secret for inter-node authentication")
+
+	// Ergonomic flag aliases for quickstarts
+	dataDirAlias := flag.String("data-dir", "", "alias for -data")
+	adminKeyAlias := flag.String("admin-key", "", "alias for -api-keys")
 	flag.Parse()
+
+	if *dataDirAlias != "" && (*dataDir == "./data" || *dataDir == "") {
+		*dataDir = *dataDirAlias
+	}
+	if *adminKeyAlias != "" && *apiKeysFlag == "" {
+		if strings.Contains(*adminKeyAlias, "=") {
+			*apiKeysFlag = *adminKeyAlias
+		} else {
+			*apiKeysFlag = fmt.Sprintf("%s=admin", *adminKeyAlias)
+		}
+	}
 
 	if *dataDir == "" {
 		log.Fatalf("data directory path cannot be empty")
+	}
+
+	// Standalone single-node mode auto-detection:
+	// If no peers are provided and N was not explicitly overridden in env, default to N=1, W=1, R=1
+	// so single docker container / local binary runs out of the box like MinIO/Redis/Postgres
+	if *peersFlag == "" && os.Getenv("CLOUDWEAVE_N") == "" && *nFlag == 3 {
+		*nFlag = 1
+		*wFlag = 1
+		*rFlag = 1
+		log.Printf("[Main] Standalone single-node mode active (no peers) — quorum set to N=1, W=1, R=1")
 	}
 
 	// 0. TLS Setup
