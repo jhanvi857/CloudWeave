@@ -409,10 +409,11 @@
                         <th>Bucket / Namespace</th>
                         <th>File Size</th>
                         <th>Quorum Chunks</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody id="objectsTableBody">
-                    <tr><td colspan="4" style="text-align:center; color: var(--text-muted);">No objects uploaded yet</td></tr>
+                    <tr><td colspan="5" style="text-align:center; color: var(--text-muted);">No objects uploaded yet</td></tr>
                 </tbody>
             </table>
         </div>
@@ -475,6 +476,7 @@
     <script>
         let previousActiveNodes = -1;
         let previousObjectCount = -1;
+        let previousObjectsSet = null;
 
         const savedKey = localStorage.getItem('cw_admin_key') || '';
         if (savedKey) {
@@ -508,12 +510,19 @@
             return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
-        function addLog(msg) {
+        function addLog(msg, type = 'info') {
             const container = document.getElementById('eventLogs');
             const line = document.createElement('div');
             line.className = 'log-line';
             const time = new Date().toLocaleTimeString();
-            line.innerHTML = `<span class="log-time">[${time}]</span> ${escapeHtml(msg)}`;
+
+            let color = 'var(--text)';
+            if (type === 'success') color = 'var(--success)';
+            else if (type === 'error' || type === 'danger') color = 'var(--danger)';
+            else if (type === 'warning') color = 'var(--warning)';
+            else if (type === 'orange') color = 'var(--orange)';
+
+            line.innerHTML = `<span class="log-time">[${time}]</span> <span style="color: ${color}; font-weight: 500;">${escapeHtml(msg)}</span>`;
             container.appendChild(line);
             container.scrollTop = container.scrollHeight;
         }
@@ -550,15 +559,24 @@
                 }
 
                 if (previousActiveNodes >= 0 && activeCount < previousActiveNodes) {
-                    addLog(`<span style="color:var(--danger);">[ALERT] Node offline detected. Quorum ring adjusted.</span>`);
+                    addLog('[ALERT] Node offline detected. Quorum ring adjusted.', 'danger');
                 } else if (previousActiveNodes >= 0 && activeCount > previousActiveNodes) {
-                    addLog(`<span style="color:var(--orange);">[INFO] Node joined cluster mesh. Ring updated.</span>`);
+                    addLog('[INFO] Node joined cluster mesh. Ring updated.', 'warning');
                 }
                 previousActiveNodes = activeCount;
 
-                if (previousObjectCount >= 0 && totalStoredCount > previousObjectCount) {
-                    addLog(`<span style="color:var(--orange);">[STORAGE] New object ingested & chunked across cluster!</span>`);
+                // Track live object uploads from any external application (localhost:3000, AWS CLI, SDKs)
+                if (previousObjectsSet !== null) {
+                    storedObjects.forEach(obj => {
+                        const key = `${obj.namespace || 'default'}/${obj.file_id}`;
+                        if (!previousObjectsSet.has(key)) {
+                            addLog(`[STORAGE] Stored '${obj.file_id}' (${formatBytes(obj.size)}) in bucket '${obj.namespace || 'default'}' [Quorum Verified]`, 'success');
+                        }
+                    });
                 }
+                const newSet = new Set();
+                storedObjects.forEach(obj => newSet.add(`${obj.namespace || 'default'}/${obj.file_id}`));
+                previousObjectsSet = newSet;
                 previousObjectCount = totalStoredCount;
 
                 // Render Stored Objects Table
@@ -568,21 +586,26 @@
                     storedObjects.forEach(obj => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
-                            <td class="node-addr" style="color:var(--orange);">${escapeHtml(obj.file_id)}</td>
-                            <td><span style="color:var(--text-muted);">${escapeHtml(obj.namespace || 'default')}</span></td>
+                            <td class="node-addr" style="color:var(--orange); font-weight:600;">${escapeHtml(obj.file_id)}</td>
+                            <td><span style="color:var(--text-muted); font-family:'JetBrains Mono', monospace;">${escapeHtml(obj.namespace || 'default')}</span></td>
                             <td style="font-family:'JetBrains Mono', monospace;">${formatBytes(obj.size)}</td>
                             <td><span class="status-tag tag-alive">${obj.chunk_count} Chunks</span></td>
+                            <td><button type="button" class="btn btn-sec" style="padding:0.25rem 0.6rem; font-size:0.75rem;" onclick="inspectObject('${escapeHtml(obj.namespace || 'default')}', '${escapeHtml(obj.file_id)}')">Verify / Fetch</button></td>
                         `;
                         objTbody.appendChild(tr);
                     });
                 } else {
-                    objTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color: var(--text-muted);">No objects uploaded yet</td></tr>';
+                    objTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-muted);">No objects uploaded yet</td></tr>';
                 }
 
                 // Render Nodes Table
                 const tbody = document.getElementById('nodesTableBody');
                 tbody.innerHTML = '';
                 if (data.all_nodes && data.all_nodes.length > 0) {
+                    data.all_nodes.sort((a, b) => {
+                        if (a.is_local !== b.is_local) return a.is_local ? -1 : 1;
+                        return (a.addr || '').localeCompare(b.addr || '');
+                    });
                     data.all_nodes.forEach(node => {
                         const tr = document.createElement('tr');
                         const isAlive = node.is_alive !== undefined ? node.is_alive : (data.active_nodes && data.active_nodes.includes(node.addr));
@@ -611,21 +634,21 @@
 
         async function killNode(addr) {
             saveApiKey();
-            addLog(`Triggering kill command for ${addr}...`);
+            addLog(`Triggering kill command for ${addr}...`, 'warning');
             try {
                 const res = await fetch('/admin/kill?node_addr=' + encodeURIComponent(addr), {
                     method: 'POST',
                     headers: getAuthHeader()
                 });
                 if (res.ok) {
-                    addLog(`<span style="color:var(--warning);">Simulated failure triggered for ${addr}.</span>`);
+                    addLog(`Simulated failure triggered for ${addr}.`, 'warning');
                     fetchClusterStatus();
                 } else {
                     const txt = await res.text();
-                    addLog(`<span style="color:var(--danger);">Kill failed (${res.status}): ${txt}</span>`);
+                    addLog(`Kill failed (${res.status}): ${txt}`, 'danger');
                 }
             } catch (e) {
-                addLog(`<span style="color:var(--danger);">Kill error: ${e.message}</span>`);
+                addLog(`Kill error: ${e.message}`, 'danger');
             }
         }
 
@@ -634,7 +657,7 @@
             const fileId = document.getElementById('fileIdInput').value.trim() || 'demo-file.txt';
             const payload = document.getElementById('filePayloadInput').value;
 
-            addLog(`PUT object '${fileId}' to quorum cluster...`);
+            addLog(`PUT object '${fileId}' to quorum cluster...`, 'info');
             try {
                 const res = await fetch('/files/default/' + encodeURIComponent(fileId), {
                     method: 'PUT',
@@ -643,14 +666,14 @@
                 });
 
                 if (res.ok) {
-                    addLog(`<span style="color:var(--orange);">SUCCESS: Object '${fileId}' stored across quorum.</span>`);
+                    addLog(`SUCCESS: Object '${fileId}' stored across quorum.`, 'success');
                     fetchClusterStatus();
                 } else {
                     const txt = await res.text();
-                    addLog(`<span style="color:var(--danger);">Upload failed (${res.status}): ${txt}</span>`);
+                    addLog(`Upload failed (${res.status}): ${txt}`, 'danger');
                 }
             } catch (e) {
-                addLog(`<span style="color:var(--danger);">Network error: ${e.message}</span>`);
+                addLog(`Network error: ${e.message}`, 'danger');
             }
         }
 
@@ -658,7 +681,7 @@
             saveApiKey();
             const fileId = document.getElementById('fileIdInput').value.trim() || 'demo-file.txt';
 
-            addLog(`GET object '${fileId}' from quorum cluster...`);
+            addLog(`GET object '${fileId}' from quorum cluster...`, 'info');
             try {
                 const res = await fetch('/files/default/' + encodeURIComponent(fileId), {
                     method: 'GET',
@@ -667,14 +690,38 @@
 
                 if (res.ok) {
                     const text = await res.text();
-                    addLog(`<span style="color:#ffffff;">FETCHED '${fileId}' (${text.length} B): "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"</span>`);
+                    addLog(`FETCHED '${fileId}' (${text.length} B): "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'success');
                     fetchClusterStatus();
                 } else {
                     const txt = await res.text();
-                    addLog(`<span style="color:var(--danger);">Fetch failed (${res.status}): ${txt}</span>`);
+                    addLog(`Fetch failed (${res.status}): ${txt}`, 'danger');
                 }
             } catch (e) {
-                addLog(`<span style="color:var(--danger);">Network error: ${e.message}</span>`);
+                addLog(`Network error: ${e.message}`, 'danger');
+            }
+        }
+
+        async function inspectObject(ns, fileId) {
+            saveApiKey();
+            document.getElementById('fileIdInput').value = fileId;
+            addLog(`GET object '${fileId}' from bucket '${ns}'...`, 'info');
+            try {
+                const res = await fetch('/files/' + encodeURIComponent(ns) + '/' + encodeURIComponent(fileId), {
+                    method: 'GET',
+                    headers: getAuthHeader()
+                });
+
+                if (res.ok) {
+                    const text = await res.text();
+                    const preview = text.length > 50 ? text.substring(0, 50) + '...' : text;
+                    addLog(`VERIFIED '${fileId}' in '${ns}' (${text.length} B): "${preview}"`, 'success');
+                    fetchClusterStatus();
+                } else {
+                    const txt = await res.text();
+                    addLog(`Fetch failed (${res.status}): ${txt}`, 'danger');
+                }
+            } catch (e) {
+                addLog(`Network error: ${e.message}`, 'danger');
             }
         }
 

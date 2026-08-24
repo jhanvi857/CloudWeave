@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -835,6 +836,14 @@ func (a *APIHandler) HandleClusterStatus(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// Deterministic sort: local node first, then ascending by address
+	sort.Slice(allNodes, func(i, j int) bool {
+		if allNodes[i].IsLocal != allNodes[j].IsLocal {
+			return allNodes[i].IsLocal
+		}
+		return allNodes[i].Addr < allNodes[j].Addr
+	})
+
 	type StoredObject struct {
 		FileID     string `json:"file_id"`
 		Namespace  string `json:"namespace"`
@@ -857,6 +866,14 @@ func (a *APIHandler) HandleClusterStatus(w http.ResponseWriter, r *http.Request)
 			})
 		}
 	}
+
+	// Deterministic sort: namespace, then file ID
+	sort.Slice(storedObjects, func(i, j int) bool {
+		if storedObjects[i].Namespace != storedObjects[j].Namespace {
+			return storedObjects[i].Namespace < storedObjects[j].Namespace
+		}
+		return storedObjects[i].FileID < storedObjects[j].FileID
+	})
 
 	status := map[string]interface{}{
 		"active_nodes":          activeNodes,

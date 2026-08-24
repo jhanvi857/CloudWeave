@@ -396,8 +396,9 @@ func NewRouterWithClusterSecret(apiHandler *APIHandler, transportHandler http.Ha
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key, X-Namespace")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, HEAD, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key, X-Namespace, X-Amz-Date, X-Amz-Content-Sha256, X-Amz-Algorithm, X-Amz-Credential, X-Amz-Security-Token, X-Amz-SignedHeaders, X-Amz-Signature, X-Amz-User-Agent, ETag")
+		w.Header().Set("Access-Control-Expose-Headers", "ETag, Content-Length, Content-Type, X-Amz-Request-Id")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
