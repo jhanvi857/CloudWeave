@@ -1,8 +1,11 @@
 import type { Metadata } from 'next'
 import './globals.css'
 
-export const metadata: Metadata = { title: 'CloudWeave Docs', description: 'Distributed object storage, explained and observable.' }
+export const metadata: Metadata = {
+  title: 'CloudWeave Documentation',
+  description: 'Understand distributed object storage through CloudWeave.',
+}
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en" className="bg-[#f7f9fc]"><body>{children}</body></html>
+  return <html lang="en" className="bg-[var(--paper)]"><body>{children}</body></html>
 }
