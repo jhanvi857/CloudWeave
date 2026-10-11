@@ -81,6 +81,7 @@ func main() {
 	rFlag := flag.Int("r", getEnvIntOrDefault("CLOUDWEAVE_R", 2), "read quorum R")
 	apiKeysFlag := flag.String("api-keys", getEnvOrDefault("CLOUDWEAVE_API_KEYS", ""), "comma-separated list of key=ns1,ns2 or key=admin")
 	storageMode := flag.String("storage-mode", getEnvOrDefault("CLOUDWEAVE_STORAGE_MODE", "replication"), "storage engine strategy")
+	chunkerFlag := flag.String("chunker", getEnvOrDefault("CLOUDWEAVE_CHUNKER", "fixed"), "chunker strategy: 'fixed' (1MB) or 'cdc' (FastCDC)")
 	kFlag := flag.Int("k", getEnvIntOrDefault("CLOUDWEAVE_K", 4), "data shards K for erasure coding mode")
 	mFlag := flag.Int("m", getEnvIntOrDefault("CLOUDWEAVE_M", 2), "parity shards M for erasure coding mode")
 	tlsCert := flag.String("tls-cert", getEnvOrDefault("CLOUDWEAVE_TLS_CERT", ""), "path to TLS certificate file")
@@ -93,7 +94,16 @@ func main() {
 	// Ergonomic flag aliases for quickstarts
 	dataDirAlias := flag.String("data-dir", "", "alias for -data")
 	adminKeyAlias := flag.String("admin-key", "", "alias for -api-keys")
+	cdcAlias := flag.Bool("cdc", false, "alias for -chunker=cdc")
+	erasureAlias := flag.Bool("erasure", false, "alias for -storage-mode=erasure")
 	flag.Parse()
+
+	if *cdcAlias {
+		*chunkerFlag = "cdc"
+	}
+	if *erasureAlias {
+		*storageMode = "erasure"
+	}
 
 	if *dataDirAlias != "" && (*dataDir == "./data" || *dataDir == "") {
 		*dataDir = *dataDirAlias
@@ -303,7 +313,9 @@ func main() {
 	defer reconciler.Stop()
 
 	// 4. Quorum Coordinator & Garbage Collector
+	metaStore.SetNodeID(localAddr)
 	coord := coordinator.NewCoordinator(hashRing, metaStore, localAddr, diskStore, *nFlag, *wFlag, *rFlag)
+	coord.SetStorageMode(*storageMode, *kFlag, *mFlag)
 	coord.SetHTTPClient(nodeHttpClient)
 	coord.SetClusterSecret(*clusterSecretFlag)
 	gcEngine := gc.NewGarbageCollector(metaStore, diskStore)
@@ -311,6 +323,7 @@ func main() {
 
 	// 5. API Handler & Transport Server
 	apiHandler := api.NewAPIHandler(metaStore, coord, api.DefaultChunkSize)
+	apiHandler.SetChunkerMode(*chunkerFlag)
 	apiHandler.SetPeerManager(membership, localAddr)
 	apiHandler.SetWAL(wal)
 	apiHandler.SetHTTPClient(nodeHttpClient)
