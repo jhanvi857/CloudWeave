@@ -37,12 +37,13 @@ type InFlightRecorder interface {
 
 // S3Handler implements the Amazon S3 REST API surface.
 type S3Handler struct {
-	metaStore *metadata.Store
-	engine    ChunkStorageEngine
-	auth      *auth.Authenticator
-	chunkSize int
-	mpStore   *MultipartStore
-	inFlight  InFlightRecorder
+	metaStore   *metadata.Store
+	engine      ChunkStorageEngine
+	auth        *auth.Authenticator
+	chunkSize   int
+	mpStore     *MultipartStore
+	inFlight    InFlightRecorder
+	chunkerMode string
 }
 
 // NewS3Handler initializes a new S3Handler.
@@ -62,6 +63,14 @@ func NewS3Handler(metaStore *metadata.Store, engine ChunkStorageEngine, chunkSiz
 		chunkSize: chunkSize,
 		mpStore:   NewMultipartStore(),
 	}
+}
+
+func (s *S3Handler) SetChunkerMode(mode string) {
+	s.chunkerMode = strings.ToLower(mode)
+}
+
+func (s *S3Handler) GetChunkerMode() string {
+	return s.chunkerMode
 }
 
 func (s *S3Handler) SetInFlightRegistry(inFlight InFlightRecorder) {
@@ -384,7 +393,11 @@ func (s *S3Handler) handlePutObject(w http.ResponseWriter, r *http.Request, buck
 		regMu.Unlock()
 	}()
 
-	totalBytes, chunkIDs, err := chunk.SplitStream(reader, s.chunkSize, func(c chunk.Chunk) error {
+	useCDC := s.chunkerMode == "cdc" ||
+		strings.EqualFold(r.Header.Get("X-Chunker"), "cdc") ||
+		strings.EqualFold(r.URL.Query().Get("chunker"), "cdc")
+
+	processChunkFunc := func(c chunk.Chunk) error {
 		if s.inFlight != nil {
 			s.inFlight.Register(c.ID)
 			regMu.Lock()
@@ -399,7 +412,15 @@ func (s *S3Handler) handlePutObject(w http.ResponseWriter, r *http.Request, buck
 		chunkLocations[c.ID] = locs
 		mu.Unlock()
 		return nil
-	})
+	}
+
+	var totalBytes int64
+	var err error
+	if useCDC {
+		totalBytes, chunkIDs, err = chunk.SplitStreamCDC(reader, 16*1024, 256*1024, processChunkFunc)
+	} else {
+		totalBytes, chunkIDs, err = chunk.SplitStream(reader, s.chunkSize, processChunkFunc)
+	}
 
 	if err != nil {
 		if errors.Is(err, ErrChunkSignatureMismatch) || strings.Contains(err.Error(), "SignatureDoesNotMatch") {
@@ -639,7 +660,11 @@ func (s *S3Handler) handleUploadPart(w http.ResponseWriter, r *http.Request, buc
 	chunkLocations := make(map[string][]string)
 	var mu sync.Mutex
 
-	totalBytes, chunkIDs, err := chunk.SplitStream(reader, s.chunkSize, func(c chunk.Chunk) error {
+	useCDC := s.chunkerMode == "cdc" ||
+		strings.EqualFold(r.Header.Get("X-Chunker"), "cdc") ||
+		strings.EqualFold(r.URL.Query().Get("chunker"), "cdc")
+
+	processChunkFunc := func(c chunk.Chunk) error {
 		locs, err := s.engine.PutChunk(c.ID, c.Data)
 		if err != nil {
 			return err
@@ -648,7 +673,14 @@ func (s *S3Handler) handleUploadPart(w http.ResponseWriter, r *http.Request, buc
 		chunkLocations[c.ID] = locs
 		mu.Unlock()
 		return nil
-	})
+	}
+
+	var totalBytes int64
+	if useCDC {
+		totalBytes, chunkIDs, err = chunk.SplitStreamCDC(reader, 16*1024, 256*1024, processChunkFunc)
+	} else {
+		totalBytes, chunkIDs, err = chunk.SplitStream(reader, s.chunkSize, processChunkFunc)
+	}
 
 	if err != nil {
 		if errors.Is(err, ErrChunkSignatureMismatch) || strings.Contains(err.Error(), "SignatureDoesNotMatch") {

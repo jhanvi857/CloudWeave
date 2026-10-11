@@ -71,6 +71,7 @@ type APIHandler struct {
 	clusterSecret  string
 	inFlight       *storage.InFlightRegistry
 	diskStore      *storage.DiskStore
+	chunkerMode    string
 }
 
 func NewAPIHandler(metaStore *metadata.Store, engine ChunkStorageEngine, chunkSize int) *APIHandler {
@@ -85,6 +86,14 @@ func NewAPIHandler(metaStore *metadata.Store, engine ChunkStorageEngine, chunkSi
 		httpClient: &http.Client{Timeout: 3 * time.Second},
 		inFlight:   storage.NewInFlightRegistry(),
 	}
+}
+
+func (a *APIHandler) SetChunkerMode(mode string) {
+	a.chunkerMode = strings.ToLower(mode)
+}
+
+func (a *APIHandler) GetChunkerMode() string {
+	return a.chunkerMode
 }
 
 func (a *APIHandler) SetInFlightRegistry(reg *storage.InFlightRegistry) {
@@ -271,10 +280,16 @@ func (a *APIHandler) handlePutFile(w http.ResponseWriter, r *http.Request, names
 		}()
 	}
 
-	totalBytes, chunkIDs, err := chunk.SplitStream(r.Body, a.chunkSize, func(c chunk.Chunk) error {
+	useCDC := a.chunkerMode == "cdc" ||
+		strings.EqualFold(r.Header.Get("X-Chunker"), "cdc") ||
+		strings.EqualFold(r.URL.Query().Get("chunker"), "cdc")
+
+	processChunkFunc := func(c chunk.Chunk) error {
 		select {
 		case err := <-errChan:
 			return err
+		case <-r.Context().Done():
+			return r.Context().Err()
 		default:
 		}
 		if a.inFlight != nil {
@@ -283,9 +298,23 @@ func (a *APIHandler) handlePutFile(w http.ResponseWriter, r *http.Request, names
 			inFlightRegistered = append(inFlightRegistered, c.ID)
 			regMu.Unlock()
 		}
-		jobs <- c
-		return nil
-	})
+		select {
+		case err := <-errChan:
+			return err
+		case <-r.Context().Done():
+			return r.Context().Err()
+		case jobs <- c:
+			return nil
+		}
+	}
+
+	var totalBytes int64
+	var err error
+	if useCDC {
+		totalBytes, chunkIDs, err = chunk.SplitStreamCDC(r.Body, 16*1024, 256*1024, processChunkFunc)
+	} else {
+		totalBytes, chunkIDs, err = chunk.SplitStream(r.Body, a.chunkSize, processChunkFunc)
+	}
 
 	close(jobs)
 	wg.Wait()

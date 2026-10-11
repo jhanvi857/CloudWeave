@@ -383,6 +383,7 @@ func NewRouterWithClusterSecret(apiHandler *APIHandler, transportHandler http.Ha
 	var s3Handler http.Handler
 	if apiHandler != nil && apiHandler.GetMetaStore() != nil && apiHandler.GetEngine() != nil {
 		s3H := s3.NewS3Handler(apiHandler.GetMetaStore(), apiHandler.GetEngine(), apiHandler.GetChunkSize(), authenticator)
+		s3H.SetChunkerMode(apiHandler.GetChunkerMode())
 		if apiHandler.GetInFlightRegistry() != nil {
 			s3H.SetInFlightRegistry(apiHandler.GetInFlightRegistry())
 		}

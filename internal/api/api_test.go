@@ -454,3 +454,54 @@ func TestAPIHandler_DynamicKeyManagementAndClusterNodes(t *testing.T) {
 	putRevokedResp.Body.Close()
 }
 
+func TestAPIHandler_FastCDCUploadAndDeduplication(t *testing.T) {
+	metaStore := metadata.NewStore()
+	tempDir := t.TempDir()
+	diskStore, _ := storage.NewDiskStore(tempDir)
+	localAdapter := &LocalStorageAdapter{
+		PutFunc: diskStore.Put,
+		GetFunc: diskStore.Get,
+		NodeID:  "local-node",
+	}
+
+	handler := NewAPIHandler(metaStore, localAdapter, 1024*1024)
+	router := NewRouter(handler, nil, nil)
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	// Upload using FastCDC content-defined chunking
+	payload := bytes.Repeat([]byte("FastCDC rolling hash content-defined chunking test payload string! "), 500)
+	putReq, _ := http.NewRequest(http.MethodPut, ts.URL+"/files/cdc-doc.txt", bytes.NewReader(payload))
+	putReq.Header.Set("Authorization", "Bearer default-admin-key")
+	putReq.Header.Set("X-Chunker", "cdc")
+
+	putResp, err := http.DefaultClient.Do(putReq)
+	if err != nil || putResp.StatusCode != http.StatusCreated {
+		t.Fatalf("FastCDC PUT failed: %v, status: %d", err, putResp.StatusCode)
+	}
+	putResp.Body.Close()
+
+	// Verify manifest was created
+	m, found := metaStore.Lookup("cdc-doc.txt")
+	if !found {
+		t.Fatalf("manifest not found for cdc-doc.txt")
+	}
+	if len(m.ChunkIDs) == 0 {
+		t.Errorf("expected chunk IDs from FastCDC, got none")
+	}
+
+	// Verify GET retrieves exact payload
+	getReq, _ := http.NewRequest(http.MethodGet, ts.URL+"/files/cdc-doc.txt", nil)
+	getReq.Header.Set("Authorization", "Bearer default-admin-key")
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil || getResp.StatusCode != http.StatusOK {
+		t.Fatalf("FastCDC GET failed: %v, status: %d", err, getResp.StatusCode)
+	}
+	downloaded, _ := io.ReadAll(getResp.Body)
+	getResp.Body.Close()
+
+	if !bytes.Equal(downloaded, payload) {
+		t.Fatalf("payload mismatch under FastCDC")
+	}
+}
+
