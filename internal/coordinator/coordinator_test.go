@@ -2,6 +2,9 @@ package coordinator
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -128,3 +131,76 @@ func TestCoordinator_QuorumReadWrite(t *testing.T) {
 		t.Fatalf("byte mismatch!\nGot:  %s\nWant: %s", string(downloaded), string(payload))
 	}
 }
+
+func TestCoordinator_ReadIntegrityVerification(t *testing.T) {
+	tempDir := t.TempDir()
+	store, _ := storage.NewDiskStore(tempDir)
+	r := ring.New()
+	metaStore := metadata.NewStore()
+	coord := NewCoordinator(r, metaStore, "http://localhost:9000", store, 1, 1, 1)
+
+	validPayload := []byte("Original authentic chunk data")
+	sum := sha256.Sum256(validPayload)
+	chunkID := hex.EncodeToString(sum[:])
+
+	// Store corrupted payload under valid chunk ID
+	corruptedPayload := []byte("Corrupted tampered data!")
+	_ = store.Put(chunkID, corruptedPayload)
+
+	// Attempt to read via coordinator - must fail integrity check
+	_, err := coord.ReadChunk(context.Background(), chunkID, []string{"http://localhost:9000"})
+	if err == nil {
+		t.Fatalf("expected ReadChunk to fail due to corrupted payload, but it succeeded")
+	}
+}
+
+func TestCoordinator_ErasureCodingReadWrite(t *testing.T) {
+	// Spin up 5 storage nodes for K=3, M=2 erasure coding
+	const numNodes = 5
+	var nodeServers []*httptest.Server
+	var nodeStores []*storage.DiskStore
+
+	r := ring.New()
+	for i := 0; i < numNodes; i++ {
+		tempDir := t.TempDir()
+		diskStore, _ := storage.NewDiskStore(tempDir)
+		nodeStores = append(nodeStores, diskStore)
+
+		transportSvr := transport.NewServer(diskStore)
+		ts := httptest.NewServer(transportSvr.Handler())
+		nodeServers = append(nodeServers, ts)
+		r.AddNode(ts.URL)
+	}
+	defer func() {
+		for _, ts := range nodeServers {
+			ts.Close()
+		}
+	}()
+
+	metaStore := metadata.NewStore()
+	coord := NewCoordinator(r, metaStore, "", nil, 3, 2, 2)
+	coord.SetStorageMode("erasure", 3, 2)
+
+	payload := []byte("Erasure Coding distributed storage payload test across 5 nodes!")
+	sum := sha256.Sum256(payload)
+	chunkID := hex.EncodeToString(sum[:])
+
+	// 1. PutChunk in erasure mode
+	locs, err := coord.PutChunk(chunkID, payload)
+	if err != nil {
+		t.Fatalf("PutChunk in erasure mode failed: %v", err)
+	}
+	if len(locs) < 3 {
+		t.Errorf("expected at least 3 successful shard writes, got %d", len(locs))
+	}
+
+	// 2. ReadChunk in erasure mode
+	recovered, err := coord.GetChunk(chunkID, locs)
+	if err != nil {
+		t.Fatalf("GetChunk in erasure mode failed: %v", err)
+	}
+	if !bytes.Equal(recovered, payload) {
+		t.Fatalf("data mismatch!\nGot:  %s\nWant: %s", string(recovered), string(payload))
+	}
+}
+

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"cloudWeave/internal/metadata"
@@ -23,6 +24,10 @@ type Coordinator struct {
 	N int // Replication factor
 	W int // Write quorum
 	R int // Read quorum
+
+	StorageMode string // "replication" (default) or "erasure"
+	K           int    // Data shards count for erasure coding (default 4)
+	M           int    // Parity shards count for erasure coding (default 2)
 }
 
 func NewCoordinator(r *ring.Ring, meta *metadata.Store, localAddr string, localStore *storage.DiskStore, n, w, req int) *Coordinator {
@@ -36,13 +41,28 @@ func NewCoordinator(r *ring.Ring, meta *metadata.Store, localAddr string, localS
 		req = 2
 	}
 	return &Coordinator{
-		ring:       r,
-		metaStore:  meta,
-		localAddr:  localAddr,
-		localStore: localStore,
-		N:          n,
-		W:          w,
-		R:          req,
+		ring:        r,
+		metaStore:   meta,
+		localAddr:   localAddr,
+		localStore:  localStore,
+		N:           n,
+		W:           w,
+		R:           req,
+		StorageMode: "replication",
+		K:           4,
+		M:           2,
+	}
+}
+
+func (c *Coordinator) SetStorageMode(mode string, k, m int) {
+	if mode != "" {
+		c.StorageMode = strings.ToLower(mode)
+	}
+	if k > 0 {
+		c.K = k
+	}
+	if m > 0 {
+		c.M = m
 	}
 }
 
@@ -55,8 +75,12 @@ func (c *Coordinator) SetClusterSecret(secret string) {
 }
 
 
-// PutChunk satisfies api.ChunkStorageEngine interface by fanning out chunk to N nodes from ring.
+// PutChunk satisfies api.ChunkStorageEngine interface by fanning out chunk to N nodes from ring or encoding via Reed-Solomon.
 func (c *Coordinator) PutChunk(chunkID string, data []byte) ([]string, error) {
+	if strings.EqualFold(c.StorageMode, "erasure") {
+		return c.PutErasureChunk(chunkID, data)
+	}
+
 	targetNodes := c.ring.GetNodesForKey(chunkID, c.N)
 	if len(targetNodes) == 0 {
 		return nil, fmt.Errorf("no active nodes in hash ring to place chunk %s", chunkID)
