@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -101,6 +102,82 @@ func TestWAL_CredentialHashedPersistenceAndReplay(t *testing.T) {
 	}
 	if !validated.CanAccessNamespace("tenant-wal") {
 		t.Errorf("expected tenant-wal permission after WAL replay")
+	}
+}
+
+func TestWAL_TornTailRecovery(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "torn_tail.wal")
+
+	// 1. Write 2 valid records
+	wal, err := OpenWAL(walPath)
+	if err != nil {
+		t.Fatalf("OpenWAL: %v", err)
+	}
+
+	m1 := Manifest{FileID: "valid-doc-1", Size: 100}
+	m2 := Manifest{FileID: "valid-doc-2", Size: 200}
+	_ = wal.WriteRecord(WALRecord{Op: OpRecordManifest, Manifest: m1})
+	_ = wal.WriteRecord(WALRecord{Op: OpRecordManifest, Manifest: m2})
+	wal.Close()
+
+	// 2. Simulate a crash: Append corrupted / torn trailing bytes without closing newline
+	tornData := []byte(`{"op":"RECORD_MANIFEST","manifest":{"file_id":"crashed-unfini`)
+	f, err := os.OpenFile(walPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	_, _ = f.Write(tornData)
+	f.Close()
+
+	// 3. Replay WAL - must NOT fail; must recover the 2 valid records
+	store := NewStore()
+	if err := ReplayWAL(walPath, store); err != nil {
+		t.Fatalf("ReplayWAL failed on torn tail: %v", err)
+	}
+
+	if _, found := store.Lookup("valid-doc-1"); !found {
+		t.Errorf("expected valid-doc-1 to be restored")
+	}
+	if _, found := store.Lookup("valid-doc-2"); !found {
+		t.Errorf("expected valid-doc-2 to be restored")
+	}
+	if _, found := store.Lookup("crashed-unfini"); found {
+		t.Errorf("crashed uncommitted record should not exist")
+	}
+}
+
+func TestWAL_Compaction(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "compact.wal")
+
+	store := NewStore()
+	wal, _ := OpenWAL(walPath)
+	store.SetWAL(wal)
+
+	// Write and overwrite
+	_ = store.RecordPlacement(Manifest{FileID: "file-v1", Size: 50})
+	_ = store.RecordPlacement(Manifest{FileID: "file-v1", Size: 150})
+	_ = store.RecordPlacement(Manifest{FileID: "file-v2", Size: 250})
+	_ = store.Delete("file-v1")
+	wal.Close()
+
+	// Compact WAL
+	if err := CompactWAL(walPath, store, nil); err != nil {
+		t.Fatalf("CompactWAL failed: %v", err)
+	}
+
+	// Replay compacted WAL into empty store
+	freshStore := NewStore()
+	if err := ReplayWAL(walPath, freshStore); err != nil {
+		t.Fatalf("ReplayWAL from compacted failed: %v", err)
+	}
+
+	if _, found := freshStore.Lookup("file-v1"); found {
+		t.Errorf("deleted file-v1 should not exist after compaction")
+	}
+	if m, found := freshStore.Lookup("file-v2"); !found || m.Size != 250 {
+		t.Errorf("file-v2 not restored properly from compacted WAL")
 	}
 }
 
