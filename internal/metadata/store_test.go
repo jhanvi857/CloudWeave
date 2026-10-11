@@ -131,3 +131,41 @@ func TestMetadataStore_NamespacesAndMetadata(t *testing.T) {
 	}
 }
 
+func TestMetadataStore_VectorClockAdvancementAndMerging(t *testing.T) {
+	storeA := NewStore()
+	storeA.SetNodeID("nodeA")
+
+	storeB := NewStore()
+	storeB.SetNodeID("nodeB")
+
+	m := Manifest{
+		FileID:   "shared-doc.txt",
+		Size:     100,
+		ChunkIDs: []string{"chunk-1"},
+	}
+
+	// 1. nodeA records placement
+	if err := storeA.RecordPlacement(m); err != nil {
+		t.Fatalf("failed to record m on nodeA: %v", err)
+	}
+
+	recA, _ := storeA.Lookup("shared-doc.txt")
+	if recA.Version == nil {
+		t.Fatalf("expected recA to have an active vector clock")
+	}
+	if recA.Version.Get("nodeA") != 1 {
+		t.Errorf("expected nodeA count to be 1, got %d", recA.Version.Get("nodeA"))
+	}
+
+	// 2. nodeB records second placement based on recA
+	recA.Size = 200
+	if err := storeB.RecordPlacement(recA); err != nil {
+		t.Fatalf("failed to record updated manifest on nodeB: %v", err)
+	}
+
+	recB, _ := storeB.Lookup("shared-doc.txt")
+	if recB.Version.Get("nodeA") != 1 || recB.Version.Get("nodeB") != 1 {
+		t.Errorf("expected merged vector clock {nodeA:1, nodeB:1}, got %s", recB.Version.String())
+	}
+}
+

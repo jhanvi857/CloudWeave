@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cloudWeave/internal/metadata"
+	"cloudWeave/internal/vectorclock"
 )
 
 // AntiEntropyReconciler periodically synchronizes metadata manifests with peer nodes to reconcile partitions or downtime.
@@ -97,7 +98,18 @@ func (a *AntiEntropyReconciler) SyncOnce(ctx context.Context) error {
 				_ = a.metaStore.RecordPlacement(remoteM)
 				log.Printf("[AntiEntropy] Reconciled missing manifest for %s/%s from peer %s", remoteM.Namespace, remoteM.FileID, peer)
 			} else {
-				if len(remoteM.Versions) > len(localM.Versions) || remoteM.VersionID != localM.VersionID {
+				shouldUpdate := false
+				if remoteM.Version != nil && localM.Version != nil {
+					rel := remoteM.Version.Compare(localM.Version)
+					if rel == vectorclock.After {
+						shouldUpdate = true
+					} else if rel == vectorclock.Concurrent {
+						shouldUpdate = len(remoteM.Versions) > len(localM.Versions) || remoteM.VersionID > localM.VersionID
+					}
+				} else {
+					shouldUpdate = len(remoteM.Versions) > len(localM.Versions) || (remoteM.VersionID != "" && remoteM.VersionID != localM.VersionID)
+				}
+				if shouldUpdate {
 					_ = a.metaStore.RecordPlacement(remoteM)
 				}
 			}

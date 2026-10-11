@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"cloudWeave/internal/vectorclock"
 )
 
 // ScopedKey builds a canonical manifest key scoped by namespace.
@@ -31,6 +33,7 @@ type Store struct {
 	manifests map[string]Manifest
 	buckets   map[string]BucketInfo
 	wal       *WAL
+	nodeID    string
 }
 
 // NewStore initializes a new MetadataStore.
@@ -41,6 +44,18 @@ func NewStore() *Store {
 			"default": {Name: "default", CreatedAt: time.Now().UTC()},
 		},
 	}
+}
+
+func (s *Store) SetNodeID(nodeID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nodeID = nodeID
+}
+
+func (s *Store) GetNodeID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.nodeID
 }
 
 func (s *Store) SetWAL(w *WAL) {
@@ -67,7 +82,21 @@ func (s *Store) RecordPlacement(manifest Manifest) error {
 		manifest.VersionID = fmt.Sprintf("v%d", time.Now().UnixNano())
 	}
 
+	// Advance or initialize vector clock for causal tracking
+	if manifest.Version == nil {
+		manifest.Version = vectorclock.NewVectorClock()
+	}
+	node := s.nodeID
+	if node == "" {
+		node = "local"
+	}
+	manifest.Version.Increment(node)
+
 	if existing, exists := s.manifests[key]; exists {
+		if existing.Version != nil {
+			manifest.Version.Merge(existing.Version)
+		}
+
 		oldVersion := existing.Clone()
 		history := append([]Manifest(nil), existing.Versions...)
 		oldVersion.Versions = nil
@@ -237,10 +266,22 @@ func (s *Store) UpdateChunkLocations(chunkID string, newLocations []string) {
 	defer s.mu.Unlock()
 
 	for key, m := range s.manifests {
+		updated := false
 		if _, found := m.ChunkLocations[chunkID]; found {
 			locs := make([]string, len(newLocations))
 			copy(locs, newLocations)
 			m.ChunkLocations[chunkID] = locs
+			updated = true
+		}
+		for i := range m.Versions {
+			if _, found := m.Versions[i].ChunkLocations[chunkID]; found {
+				locs := make([]string, len(newLocations))
+				copy(locs, newLocations)
+				m.Versions[i].ChunkLocations[chunkID] = locs
+				updated = true
+			}
+		}
+		if updated {
 			s.manifests[key] = m
 		}
 	}
