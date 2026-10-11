@@ -2,7 +2,10 @@ package coordinator
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,6 +13,13 @@ import (
 )
 
 func (c *Coordinator) ReadChunk(ctx context.Context, chunkID string, locations []string) ([]byte, error) {
+	if strings.EqualFold(c.StorageMode, "erasure") {
+		data, err := c.ReadErasureChunk(ctx, chunkID, locations)
+		if err == nil {
+			return data, nil
+		}
+	}
+
 	nodes := locations
 	if len(nodes) == 0 {
 		nodes = c.ring.GetNodesForKey(chunkID, c.N)
@@ -57,6 +67,16 @@ func (c *Coordinator) ReadChunk(ctx context.Context, chunkID string, locations [
 
 	for res := range ch {
 		if res.err == nil && len(res.data) > 0 {
+			// Self-Verifying Integrity: verify SHA-256 for content-addressed 64-char hex chunk IDs
+			if len(chunkID) == 64 {
+				sum := sha256.Sum256(res.data)
+				actualID := hex.EncodeToString(sum[:])
+				if actualID != chunkID {
+					errs = append(errs, fmt.Sprintf("%s: chunk integrity verification failed for %s (corrupted: got %s)", res.node, chunkID, actualID))
+					continue
+				}
+			}
+
 			successfulReads++
 			if len(successfulData) == 0 {
 				successfulData = res.data
