@@ -1,0 +1,65 @@
+---
+title: Replica Repair
+description: Deterministic self-healing, under-replicated chunk recovery, and primary survivor election.
+---
+
+# Replica Repair & Self-Healing
+
+When a node permanently fails or is removed from the cluster, chunks that were hosted on that node become **under-replicated** (e.g. dropping from `N=3` replicas down to 2).
+
+CloudWeave's self-healing repair engine (`internal/replication/repair.go`) automatically restores full replica health without human intervention.
+
+---
+
+## Under-Replicated Chunk Detection
+
+1. When a node failure event is confirmed, the repair coordinator scans all manifests in the local metadata store.
+2. For each chunk of each object, it queries the consistent hash ring for the current target replica set excluding dead nodes.
+3. If the number of alive nodes hosting the chunk is less than `N`, the chunk is flagged as **under-replicated** and queued for recovery.
+
+---
+
+## Primary Survivor Election
+
+In a cluster with multiple surviving replica nodes, a critical distributed challenge arises: **Which surviving node should copy the chunk to the new node?**
+
+If all surviving nodes attempt to copy the chunk simultaneously:
+- The network is flooded with duplicate, redundant transfers.
+- Disk bandwidth on the replacement node is saturated.
+
+CloudWeave solves this with **deterministic lexicographical survivor election**:
+
+```go
+// Sort surviving node addresses lexicographically
+survivors := []string{"http://node2:9001", "http://node4:9003"}
+sort.Strings(survivors)
+
+// Only the first survivor is elected primary
+primarySurvivor := survivors[0] // "http://node2:9001"
+
+if selfAddress == primarySurvivor {
+    // We are the elected repair worker: stream chunk to replacement node
+    go copyChunkToTarget(chunkID, targetNode)
+} else {
+    // Standby: avoid duplicate transfer
+}
+```
+
+Because every node runs the exact same deterministic algorithm over the same topology state, they all independently agree on the exact single sender without needing an expensive consensus vote!
+
+---
+
+## Verifying Repair with the Demo
+
+You can observe replica recovery live in the test suite:
+
+```bash
+go test -v ./test/integration -run TestNodeFailureAndRepair
+```
+
+This automated test:
+1. Uploads a multi-megabyte file across 5 nodes (`N=3`).
+2. Hard-kills Node 2.
+3. Waits for the 4-heartbeat timeout window.
+4. Asserts that the under-replicated chunks are identified and copied to surviving Node 4.
+5. Verifies that the chunk count on the cluster returns to full `N=3` health.

@@ -1,0 +1,9 @@
+{
+  "title": "Operations",
+  "pages": [
+    "docker-deployment",
+    "cluster-configuration",
+    "benchmarks",
+    "limitations"
+  ]
+}

@@ -1,0 +1,48 @@
+---
+title: S3 API Compatibility
+description: Supported Amazon S3 REST API endpoints, AWS SigV4 authentication, and compatibility details.
+---
+
+# S3 API Compatibility
+
+CloudWeave implements the Amazon S3 REST protocol (`internal/s3`), allowing off-the-shelf tools, libraries, and SDKs to interact with CloudWeave seamlessly.
+
+---
+
+## Supported Operations
+
+| S3 Operation | HTTP Method | Endpoint URI | Description |
+| :--- | :--- | :--- | :--- |
+| **PutObject** | `PUT` | `/{bucket}/{key}` | Upload object payload (supports streaming & chunked) |
+| **GetObject** | `GET` | `/{bucket}/{key}` | Download object contents by key |
+| **HeadObject** | `HEAD` | `/{bucket}/{key}` | Retrieve metadata, ETag (SHA-256), and size |
+| **DeleteObject** | `DELETE` | `/{bucket}/{key}` | Soft-delete / tombstone object version |
+| **ListObjectsV2** | `GET` | `/{bucket}?list-type=2` | List keys with prefix filtering & continuation tokens |
+| **CreateBucket** | `PUT` | `/{bucket}` | Create a storage bucket namespace |
+| **DeleteBucket** | `DELETE` | `/{bucket}` | Remove an empty bucket namespace |
+
+---
+
+## AWS Signature Version 4 (SigV4)
+
+CloudWeave implements complete RFC-compliant **AWS Signature Version 4 (SigV4)** request authentication:
+
+- Validates `Authorization: AWS4-HMAC-SHA256 ...` headers.
+- Canonicalizes URI path, query parameters, headers, and signed headers.
+- Verifies request timestamp freshness (rejects requests older than 15 minutes to defend against replay attacks).
+- Verifies HMAC-SHA256 signatures derived from the configured API keys.
+- Supports pre-signed URLs with expiration timeouts for temporary web access.
+
+---
+
+## Streaming `aws-chunked` Payloads
+
+When uploading large payloads using the AWS CLI or modern SDKs, requests often utilize `Transfer-Encoding: chunked` with `Content-Encoding: aws-chunked`:
+
+```text
+40;chunk-signature=0d099de...
+[64 bytes of raw binary data]
+0;chunk-signature=5c41ae...
+```
+
+CloudWeave's S3 handler automatically decodes `aws-chunked` streams in-flight, validating the per-chunk HMAC signature and piping raw payload bytes directly into the FastCDC chunker without buffering entire gigabytes in RAM.

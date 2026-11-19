@@ -1,0 +1,80 @@
+---
+title: Introduction
+description: Overview, architecture, and core design principles of CloudWeave distributed object storage.
+---
+
+# Introduction to CloudWeave
+
+**CloudWeave** is a lightweight, distributed, S3-compatible object storage system written from scratch in Go. It is engineered to bring distributed systems primitives—such as content-defined chunking, consistent hashing, quorum consensus, and self-healing repair—out of the black box into a testable, hackable environment.
+
+With CloudWeave, you can deploy a multi-node cluster locally, point standard AWS SDKs (`aws-cli`, `boto3`, `@aws-sdk/client-s3`) to it, upload multi-gigabyte payloads, kill nodes mid-cluster, and observe failure detection and automatic replica healing in real time.
+
+---
+
+## Why CloudWeave?
+
+Traditional cloud storage systems like Amazon S3 and Google Cloud Storage are distributed systems engineering masterpieces, but they operate as opaque black boxes behind remote HTTP endpoints. 
+
+CloudWeave was built to solve this educational and architectural gap:
+
+- **Learn Distributed Storage Internals**: Trace an object write through the full lifecycle: S3 SigV4 authentication → FastCDC chunking → SHA-256 CAS → Consistent Hash Ring routing → Dynamo Quorum fanout → Write-Ahead Log (WAL) disk flush → Peer Gossip broadcast.
+- **Local S3 Development**: Prototype complex storage workflows locally without cloud bills, internet latency, or mocking libraries.
+- **Observe Fault Tolerance in Action**: Simulate node crashes, network partitions, and torn writes with built-in chaos tooling and automated repair loops.
+- **Zero-Dependency Pure Go**: Implemented entirely in Go with zero CGO or external database dependencies—compiled to a single, statically linked binary.
+
+---
+
+## Key Features
+
+<Cards>
+  <Card title="FastCDC & CAS Deduplication" href="/docs/architecture/chunking-deduplication">
+    Rolling Gear hash boundary chunking with SHA-256 content-addressing skips redundant writes across modified files.
+  </Card>
+  <Card title="Consistent Hash Ring" href="/docs/architecture/consistent-hashing">
+    150 virtual nodes per host map 32-bit keyspace evenly with only 1/N remapping on membership shifts.
+  </Card>
+  <Card title="Dynamo Quorum Consensus" href="/docs/architecture/replication-quorums">
+    Tunable N/W/R consensus with parallel chunk transfers and HTTP keep-alive connection pooling.
+  </Card>
+  <Card title="Reed-Solomon Erasure Coding" href="/docs/architecture/erasure-coding">
+    Optional K=4, M=2 Cauchy matrix coding offering 1.5x storage overhead compared to 3x replication.
+  </Card>
+  <Card title="Deterministic Self-Healing" href="/docs/core-concepts/replica-repair">
+    Lexicographical primary survivor election coordinates missing replica rebuilds with zero duplicate traffic.
+  </Card>
+  <Card title="WAL Durability & Vector Clocks" href="/docs/core-concepts/wal-metadata">
+    Synchronous `fsync` Write-Ahead Logging with CRC32 integrity checks and causal vector clock versioning.
+  </Card>
+</Cards>
+
+---
+
+## Core Invariants
+
+CloudWeave guarantees data safety through non-negotiable architectural rules:
+
+1. **Durability Sequence Invariant**:
+   A write is acknowledged to the client only after at least `W` nodes write the chunk to persistent storage, followed by a synchronous disk flush (`f.Sync()`) to the local WAL:
+   ```text
+   Chunk Stream ──► W Node Acks ──► WAL Commit (fsync) ──► Peer Gossip ──► HTTP 201 Created
+   ```
+2. **Quorum Consistency Rule**:
+   Strict read-your-writes consistency is maintained when `W + R > N`. The coordinator queries `R` nodes and resolves the latest payload using vector clock causality.
+3. **Immutability of Chunks**:
+   Chunks are strictly immutable and identified by `hex(SHA-256(data))`. Bit rot or corruption on disk is detected instantly upon read.
+
+---
+
+## Next Steps
+
+<Cards>
+  <Card title="Installation" href="/docs/getting-started/installation">
+    Install the prebuilt binary, pull the Docker container, or compile from source.
+  </Card>
+  <Card title="Docker Quickstart" href="/docs/getting-started/docker-quickstart">
+    Spin up a local 5-node cluster with Docker Compose in under 30 seconds.
+  </Card>
+  <Card title="System Architecture" href="/docs/architecture">
+    Deep-dive into the data plane, control plane, and consistent hashing ring.
+  </Card>
+</Cards>

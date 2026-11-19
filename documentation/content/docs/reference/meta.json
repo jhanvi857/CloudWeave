@@ -1,0 +1,9 @@
+{
+  "title": "Reference",
+  "pages": [
+    "configuration",
+    "s3-api",
+    "go-sdk",
+    "cli-reference"
+  ]
+}

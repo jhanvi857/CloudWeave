@@ -1,0 +1,608 @@
+@import 'tailwindcss';
+@import './theme.css';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+/* Essential theme utility classes */
+.bg-brand {
+  background-color: var(--brand) !important;
+}
+.text-brand-fg {
+  color: var(--brand-fg) !important;
+}
+.text-brand {
+  color: var(--brand) !important;
+}
+.bg-brand-soft {
+  background-color: var(--brand-soft) !important;
+}
+.border-brand-border {
+  border-color: var(--brand-border) !important;
+}
+.border-brand {
+  border-color: var(--brand) !important;
+}
+
+@layer base {
+  :root,
+  .dark {
+    --font-heading: var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-body: var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  html {
+    scrollbar-gutter: stable;
+    color-scheme: dark;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: 16px;
+    line-height: 1.7;
+    background-color: var(--bg);
+    color: var(--text-muted);
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--brand);
+    font-weight: 500;
+  }
+}
+
+/* ========================================================================= */
+/* DOCS MAIN CONTAINER (FLAT, CALM, MINIMAL — VERCEL / SUPABASE STYLE)       */
+/* ========================================================================= */
+
+/* 1. REMOVE FRAMES: No rounded border or background panel around main content */
+#nd-page,
+[data-layout-main],
+.nd-page-panel,
+[data-layout-content],
+article[data-layout-content] {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+/* 1. REMOVE VERTICAL DIVIDERS on both sides of content area */
+#nd-toc,
+.nd-toc {
+  border-left: none !important;
+  border-right: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+[data-layout-main],
+article,
+#nd-page {
+  border-left: none !important;
+  border-right: none !important;
+  border-x: none !important;
+}
+
+/* Only the sidebar keeps a 1px --border on its right edge */
+#nd-sidebar {
+  background-color: var(--bg) !important;
+  border-right: 1px solid var(--border) !important;
+  border-left: none !important;
+  border-top: none !important;
+  border-bottom: none !important;
+}
+
+/* 2. LAYOUT & SPACING: Content column max-width 720px, centered */
+article#nd-page,
+[data-layout-content],
+.prose,
+.fd-prose {
+  max-width: 720px !important;
+  width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  gap: 0 !important;
+  row-gap: 0 !important;
+}
+
+/* Padding: 64px top, 48px horizontal (24px on mobile), 96px bottom */
+article#nd-page,
+[data-layout-content] {
+  padding-top: 64px !important;
+  padding-bottom: 96px !important;
+  padding-left: 24px !important;
+  padding-right: 24px !important;
+}
+
+@media (min-width: 768px) {
+  article#nd-page,
+  [data-layout-content] {
+    padding-left: 48px !important;
+    padding-right: 48px !important;
+  }
+}
+
+/* Breadcrumb to H1: 12px */
+article#nd-page > div:first-child,
+.fd-breadcrumb {
+  margin-bottom: 12px !important;
+}
+
+/* 3. TYPOGRAPHY (GEIST) */
+
+/* Headings: crisp white (--heading) across all levels */
+h1, h2, h3, h4, h5, h6,
+#nd-page h1, #nd-page h2, #nd-page h3, #nd-page h4, #nd-page h5, #nd-page h6,
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6,
+.fd-prose h1, .fd-prose h2, .fd-prose h3, .fd-prose h4, .fd-prose h5, .fd-prose h6 {
+  color: var(--heading) !important;
+}
+
+/* H1: 32px / 600 / 1.2 / tracking -0.02em, color --heading */
+#nd-page h1,
+.prose h1,
+.fd-prose h1 {
+  font-family: var(--font-sans) !important;
+  font-size: 32px !important;
+  line-height: 1.2 !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+  color: var(--heading) !important;
+  margin-top: 0 !important;
+  margin-bottom: 12px !important;
+}
+
+/* Description under H1: 16px / 400, color --text-muted */
+#nd-page [data-description],
+[data-description] {
+  font-family: var(--font-sans) !important;
+  font-size: 16px !important;
+  font-weight: 400 !important;
+  line-height: 1.6 !important;
+  color: var(--text-muted) !important;
+  margin-top: 0 !important;
+  margin-bottom: 16px !important;
+}
+
+/* H2: 22px / 600 / 1.3, color --heading, margin-top 56px, margin-bottom 16px */
+#nd-page h2,
+.prose h2,
+.fd-prose h2 {
+  font-family: var(--font-sans) !important;
+  font-size: 22px !important;
+  line-height: 1.3 !important;
+  font-weight: 600 !important;
+  color: var(--heading) !important;
+  margin-top: 56px !important;
+  margin-bottom: 16px !important;
+  letter-spacing: -0.015em !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
+/* H3: 17px / 600 / 1.4, color --heading, margin-top 32px, margin-bottom 12px */
+#nd-page h3,
+.prose h3,
+.fd-prose h3 {
+  font-family: var(--font-sans) !important;
+  font-size: 17px !important;
+  line-height: 1.4 !important;
+  font-weight: 600 !important;
+  color: var(--heading) !important;
+  margin-top: 32px !important;
+  margin-bottom: 12px !important;
+}
+
+/* Body: 15px / 1.75 / 400, color --text-muted, paragraph gap 16px */
+#nd-page p,
+.prose p,
+.fd-prose p {
+  font-family: var(--font-sans) !important;
+  font-size: 15px !important;
+  line-height: 1.75 !important;
+  font-weight: 400 !important;
+  color: var(--text-muted) !important;
+  margin-bottom: 8px !important;
+  margin-top: 0 !important;
+}
+
+/* Bold inside body (strong): weight 500, color --text. Never 700. */
+#nd-page strong,
+#nd-page b,
+.prose strong,
+.fd-prose strong,
+.prose b,
+.fd-prose b {
+  font-weight: 500 !important;
+  color: var(--text) !important;
+}
+
+/* Horizontal rules between sections: remove, spacing does that job */
+#nd-page hr,
+.prose hr,
+.fd-prose hr {
+  display: none !important;
+}
+
+/* Code blocks: single 1px --border box, bg --surface, radius 8px, 13px / 1.6 Geist Mono */
+figure:has(pre),
+figure.shiki,
+figure[data-rehype-pretty-code-figure] {
+  background-color: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  margin-top: 8px !important;
+  margin-bottom: 20px !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+/* Ensure inner scroll container and divs have NO borders, NO background */
+figure .fd-scroll-container,
+figure:has(pre) > div {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Code content inside figure: transparent, no duplicate border, no duplicate margin, no duplicate padding */
+figure pre,
+figure:has(pre) pre {
+  background-color: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+  line-height: 1.6 !important;
+}
+
+/* Code text inside code blocks: strictly transparent, no inner border, no inner container */
+pre code,
+figure code,
+figure pre code,
+.shiki code {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+  color: inherit !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+}
+
+/* Standalone pre if any */
+pre:not(figure pre):not([class*="landing"]) {
+  background-color: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+  line-height: 1.6 !important;
+  margin-top: 8px !important;
+  margin-bottom: 20px !important;
+  padding: 12px 16px !important;
+  box-shadow: none !important;
+}
+
+/* Tight gap between text and code block */
+p + figure,
+p + pre,
+h1 + figure,
+h2 + figure,
+h3 + figure {
+  margin-top: 6px !important;
+}
+
+/* Inline code: 13px, bg --surface-2, radius 6px (strictly NOT inside pre) */
+:not(pre) > code {
+  background-color: var(--surface-2) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  font-family: var(--font-mono) !important;
+  padding: 0.15rem 0.35rem !important;
+  border-radius: 6px !important;
+  font-size: 13px !important;
+}
+
+/* Callouts: at most one 1px --border, never nested boxes, gap 24px */
+[data-callout] {
+  background-color: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  margin-top: 24px !important;
+  margin-bottom: 24px !important;
+  box-shadow: none !important;
+}
+
+/* Table: header 13px/500/--text-muted, cells 14px/400, first column 500 (not bold).
+   Only horizontal 1px --border lines, no vertical lines, no outer card. */
+.prose :where(table):not(:where([class~="not-prose"], [class~="not-prose"] *)),
+#nd-page table,
+.prose table,
+.fd-prose table,
+table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  border-spacing: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  margin-top: 16px !important;
+  margin-bottom: 24px !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+
+/* Ensure no outer card wrapper or div adds borders/background to tables */
+.prose :where(div:has(> table)),
+div:has(> table) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Tight gap after headings/paragraphs */
+p + div:has(> table),
+p + table,
+h1 + div:has(> table),
+h1 + table,
+h2 + div:has(> table),
+h2 + table,
+h3 + div:has(> table),
+h3 + table {
+  margin-top: 8px !important;
+}
+
+/* Table header th */
+.prose :where(th):not(:where([class~="not-prose"], [class~="not-prose"] *)),
+#nd-page thead th,
+.prose thead th,
+.fd-prose thead th,
+thead th {
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.5 !important;
+  color: var(--text-muted) !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-inline-start: none !important;
+  border-inline-end: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  padding: 8px 12px !important;
+  text-align: left !important;
+}
+
+.prose :where(th:first-child):not(:where([class~="not-prose"], [class~="not-prose"] *)),
+#nd-page thead th:first-child,
+.prose thead th:first-child,
+.fd-prose thead th:first-child,
+thead th:first-child {
+  padding-left: 0 !important;
+}
+
+.prose :where(th:last-child):not(:where([class~="not-prose"], [class~="not-prose"] *)),
+#nd-page thead th:last-child,
+.prose thead th:last-child,
+.fd-prose thead th:last-child,
+thead th:last-child {
+  padding-right: 0 !important;
+}
+
+/* Table body td */
+.prose :where(td):not(:where([class~="not-prose"], [class~="not-prose"] *)),
+#nd-page tbody td,
+.prose tbody td,
+.fd-prose tbody td,
+tbody td {
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 1.6 !important;
+  color: var(--text-muted) !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-inline-start: none !important;
+  border-inline-end: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  padding: 10px 12px !important;
+  text-align: left !important;
+}
+
+.prose :where(td:first-child):not(:where([class~="not-prose"], [class~="not-prose"] *)),
+#nd-page tbody td:first-child,
+.prose tbody td:first-child,
+.fd-prose tbody td:first-child,
+tbody td:first-child {
+  font-weight: 500 !important;
+  color: var(--text) !important;
+  padding-left: 0 !important;
+}
+
+.prose :where(td:last-child):not(:where([class~="not-prose"], [class~="not-prose"] *)),
+#nd-page tbody td:last-child,
+.prose tbody td:last-child,
+.fd-prose tbody td:last-child,
+tbody td:last-child {
+  padding-right: 0 !important;
+}
+
+/* Ensure strong or b inside td is 500 (not 700) */
+tbody td strong,
+tbody td b,
+#nd-page tbody td strong,
+#nd-page tbody td b {
+  font-weight: 500 !important;
+  color: var(--text) !important;
+}
+
+/* 4. PREV/NEXT CARDS:
+   Title 14px/500, description 13px/--text-muted (max 2 lines), padding 16px,
+   radius 8px, 1px --border, transparent bg.
+   Hover effect matches Card component: border-brand-border + brand-soft background. */
+#nd-page div[class*="@container"],
+#nd-page footer,
+.prose + div[class*="@container"],
+#nd-page div[class*="@container"]:has(> a) {
+  margin-top: 56px !important;
+}
+
+#nd-page footer a,
+#nd-page div[class*="@container"] > a,
+a[class*="FooterItem"],
+[data-layout-content] footer a {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  padding: 16px !important;
+  box-shadow: none !important;
+  transition: border-color 0.15s ease, background-color 0.15s ease !important;
+}
+
+#nd-page footer a:hover,
+#nd-page div[class*="@container"] > a:hover,
+a[class*="FooterItem"]:hover,
+[data-layout-content] footer a:hover {
+  border-color: var(--brand-border) !important;
+  background: var(--brand-soft) !important;
+  background-color: var(--brand-soft) !important;
+}
+
+#nd-page footer a div,
+#nd-page footer a p:first-child,
+#nd-page div[class*="@container"] > a div,
+#nd-page div[class*="@container"] > a p:first-child,
+[data-layout-content] footer a div,
+[data-layout-content] footer a p:first-child {
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  color: var(--text) !important;
+}
+
+#nd-page footer a p:last-child,
+#nd-page div[class*="@container"] > a p:last-child,
+[data-layout-content] footer a p:last-child {
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  color: var(--text-muted) !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+}
+
+/* 5. SIDEBAR & TOC:
+   Sidebar links 14px / 400, active = weight 500 + --brand text + --brand-soft bg.
+   TOC links 13px, no heavy marker: 2px --brand line on active only. */
+#nd-sidebar a,
+#nd-sidebar button {
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  color: var(--text-muted) !important;
+}
+
+#nd-sidebar [data-active="true"] {
+  background-color: var(--brand-soft) !important;
+  color: var(--brand) !important;
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+}
+
+#nd-sidebar [data-active="true"] svg {
+  color: var(--brand) !important;
+}
+
+#nd-sidebar a:hover:not([data-active="true"]),
+#nd-sidebar button:hover:not([data-active="true"]) {
+  background-color: var(--surface-2) !important;
+  color: var(--text) !important;
+}
+
+#nd-toc {
+  border-left: none !important;
+  border: none !important;
+}
+
+#nd-toc a,
+.fd-toc-item {
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  color: var(--text-muted) !important;
+  position: relative !important;
+  transition: color 0.15s ease !important;
+}
+
+#nd-toc a:hover,
+.fd-toc-item:hover {
+  color: var(--text) !important;
+}
+
+#nd-toc [data-active="true"],
+.fd-toc-item[data-active="true"] {
+  color: var(--brand) !important;
+  font-weight: 500 !important;
+}
+
+/* 2px --brand line on active only, no heavy marker */
+#nd-toc a[data-active="true"]::before,
+.fd-toc-item[data-active="true"]::before {
+  content: '' !important;
+  position: absolute !important;
+  left: -8px !important;
+  top: 3px !important;
+  bottom: 3px !important;
+  width: 2px !important;
+  background-color: var(--brand) !important;
+  border-radius: 1px !important;
+}
+
+/* Search Dialog & Callouts */
+[data-dialog-content],
+[role="dialog"] {
+  background-color: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  color: var(--text) !important;
+}
+
+mark,
+[data-highlight] {
+  background-color: var(--brand-soft) !important;
+  color: var(--brand) !important;
+}
+
+::selection {
+  background-color: var(--brand-soft) !important;
+  color: var(--brand) !important;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand) !important;
+  outline-offset: 2px !important;
+}
+
+html>body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}

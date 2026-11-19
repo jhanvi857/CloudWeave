@@ -1,0 +1,10 @@
+{
+  "title": "Core Concepts",
+  "pages": [
+    "vector-clocks",
+    "wal-metadata",
+    "failure-detection",
+    "replica-repair",
+    "anti-entropy"
+  ]
+}

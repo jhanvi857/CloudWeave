@@ -1,0 +1,65 @@
+---
+title: System Overview
+description: End-to-end architecture, data plane vs control plane separation, and consistency invariants.
+---
+
+# System Overview
+
+CloudWeave's architecture is divided into two distinct, decoupled planes: the **Data Plane** (responsible for chunk transmission, quorum consensus, and block storage) and the **Control Plane** (responsible for metadata durability, cluster membership, failure detection, and anti-entropy synchronization).
+
+---
+
+## Architecture Diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                             DATA PLANE                                   │
+│  - Dynamo-style tunable N/W/R quorum consensus                           │
+│  - Content-addressable SHA-256 chunk placement over Consistent Hash Ring │
+│  - Parallel worker-bounded chunk transfers + persistent keep-alive conns │
+│  - LRU chunk caching on read + deterministic self-healing repair         │
+└──────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                            CONTROL PLANE                                 │
+│  - Gossip broadcast (/internal/manifest, /internal/join, /internal/leave)│
+│  - Periodic background Anti-Entropy reconciliation (every 30s)           │
+│  - Local append-only Write-Ahead Log (metadata.wal) with fsync           │
+│  - Vector Clocks (VC) for causal version history & conflict detection    │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Subsystem Breakdown
+
+1. **Streaming Chunker (`internal/chunk`)**: Splits objects into SHA-256 content-addressed chunks using 1 MB fixed buffers or FastCDC rolling-hash boundaries.
+2. **Consistent Hash Ring (`internal/ring`)**: Maps chunks across 150 virtual nodes per physical host, ensuring minimal `1/N` key rebalancing during membership churn.
+3. **Quorum Coordinator (`internal/coordinator`)**: Any node can serve as coordinator, fanning out chunk reads/writes in parallel across `N` ring nodes and verifying `W` write / `R` read acknowledgments.
+4. **Metadata & WAL (`internal/metadata`)**: In-memory metadata map with causal vector clocks, backed by synchronous `metadata.wal` disk flushes with CRC32 checksums.
+5. **Anti-Entropy Reconciler (`internal/cluster/anti_entropy.go`)**: Runs periodic background sync every 30s over `GET /internal/manifest` to reconcile partitions and catch up lagging nodes.
+6. **Failure Detection & Flap Damping (`internal/cluster`)**: Requires 4 consecutive failed heartbeats before declaring a node dead, avoiding false evictions during GC pauses.
+7. **Deterministic Self-Healing Repair (`internal/replication`)**: Lexicographical primary survivor election coordinates re-replication to healthy nodes with zero duplicate transfer bandwidth.
+8. **In-Flight Registry & Mark-and-Sweep GC (`internal/gc`, `internal/storage`)**: Active upload sessions reserve chunk IDs in memory, preventing GC from purging chunks during concurrent streaming uploads.
+9. **Amazon S3 Compatibility Surface (`internal/s3`)**: Full AWS SigV4 auth, ListObjectsV2 pagination, and streaming chunk HMAC validation.
+
+---
+
+## Durability Ordering Invariant
+
+A write operation follows a strict, non-negotiable sequence:
+
+```
+Chunk Stream ──► Quorum Fan-Out (N) ──► W Acks ──► WAL Commit (fsync) ──► Peer Gossip ──► Client 201 Created
+```
+
+1. **In-Flight Chunk Registration**: Incoming stream chunks are registered in `InFlightRegistry` to prevent GC eviction races.
+2. **Quorum Fan-Out**: The coordinator fans out chunk data to the top `N` nodes on the consistent hash ring in parallel.
+3. **Quorum Acknowledgment**: The write proceeds only after at least `W` nodes write the chunk to local disk and return success.
+4. **Local WAL Commit**: The node writes the file manifest to `metadata.wal` and calls synchronous disk flush (`f.Sync()`).
+5. **Peer Gossip Broadcast**: The committed manifest is broadcast to active cluster peers over `/internal/manifest`.
+6. **Anti-Entropy Reconciliation**: Periodic background sync catches any manifests missed during network partitions or node restarts.
+7. **Client Acknowledgment**: The client receives HTTP `201 Created` or `200 OK`.
+
+> **Durability Guarantee**: Manifest commit only occurs after `W` chunk acknowledgments are received. Data loss is only possible if all `N` replicas of a chunk are lost before background self-healing repair runs.

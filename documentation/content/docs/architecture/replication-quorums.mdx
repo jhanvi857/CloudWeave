@@ -1,0 +1,60 @@
+---
+title: Replication & Quorums
+description: Dynamo-style N/W/R consensus, read-your-writes guarantees, and parallel transfer pools.
+---
+
+# Replication & Quorums
+
+CloudWeave achieves fault tolerance and high availability without a single master or Paxos/Raft leader bottleneck using **Dynamo-style N/W/R Quorum Consensus**.
+
+---
+
+## Quorum Parameters
+
+Every CloudWeave cluster configures three fundamental parameters:
+
+- **`N` (Replica Count)**: The total number of distinct nodes that store replicas of each chunk (e.g. `N=3` in a 5-node cluster).
+- **`W` (Write Quorum)**: The minimum number of successful chunk write acknowledgments required before the coordinator confirms the write.
+- **`R` (Read Quorum)**: The minimum number of replica nodes queried in parallel during a read request before returning data to the client.
+
+---
+
+## The Read-Your-Writes Invariant
+
+To guarantee strong consistency (read-your-writes), the quorum parameters must satisfy the classic inequality:
+
+```text
+W + R > N
+```
+
+By the Pigeonhole Principle, any read quorum of size `R` and any write quorum of size `W` must overlap in **at least one node** that contains the latest write:
+
+```text
+Nodes:       [ Node 1 ]   [ Node 2 ]   [ Node 3 ]
+Write Quorum:    ✓            ✓
+Read Quorum:                  ✓            ✓
+                              ▲ Overlap node guarantees latest version!
+```
+
+When querying `R` nodes, the coordinator compares the vector clocks of returned manifests and automatically serves the causally newest payload.
+
+---
+
+## Quorum Configurations
+
+| Mode | `N` | `W` | `R` | Consistency | Trade-Off |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Strict Consistency (Default)** | 3 | 2 | 2 | Strong (Read-your-writes) | Balanced read & write latency |
+| **Fast Write Optimized** | 3 | 1 | 3 | Eventual | Sub-millisecond writes; slower reads |
+| **Fast Read Optimized** | 3 | 3 | 1 | Strong | Sub-millisecond reads; slower writes |
+| **Standalone Developer** | 1 | 1 | 1 | Local | Single node testing |
+
+---
+
+## Parallel Transfer Pools & Keep-Alive
+
+CloudWeave uses bounded worker pools (`sync.WaitGroup` and semaphore channels) to fan out chunk writes concurrently rather than sequentially:
+
+1. Chunks are dispatched in parallel up to the worker limit (default: 8 concurrent streams).
+2. All node-to-node HTTP/HTTPS calls utilize persistent, pooled transport connections (`http.Transport` with keep-alives).
+3. Even under strict mTLS, TCP and TLS handshakes are performed once per node pair and reused across thousands of chunk operations, avoiding handshake CPU bottlenecks.

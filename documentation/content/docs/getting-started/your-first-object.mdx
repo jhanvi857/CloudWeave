@@ -1,0 +1,121 @@
+---
+title: Your First Object
+description: Upload, inspect, download, and delete your first object using the AWS CLI and cweave.
+---
+
+# Your First Object
+
+CloudWeave provides a fully compatible Amazon S3 REST API endpoint that works out-of-the-box with the standard AWS CLI, Python `boto3`, Node.js `@aws-sdk/client-s3`, or the native `cweave` CLI.
+
+---
+
+## 1. Using the AWS CLI
+
+### Step 1: Configure AWS CLI Profile
+Set up a dummy credential profile for CloudWeave (or use the preconfigured API key `master-secret-key`):
+
+```bash
+aws configure --profile cloudweave
+```
+
+Enter the following when prompted:
+- **AWS Access Key ID**: `master-secret-key`
+- **AWS Secret Access Key**: `admin`
+- **Default region name**: `us-east-1`
+- **Default output format**: `json`
+
+### Step 2: Upload an Object
+Create a sample file and upload it to bucket `demo-bucket`:
+
+```bash
+echo "Hello from CloudWeave distributed storage!" > test.txt
+
+aws --endpoint-url=http://localhost:9000 \
+    --profile cloudweave \
+    s3 cp test.txt s3://demo-bucket/test.txt
+```
+
+Expected output:
+```text
+upload: ./test.txt to s3://demo-bucket/test.txt
+```
+
+### Step 3: What Happened Under the Hood?
+Behind this single upload, CloudWeave executed the following sequence:
+1. **SigV4 Auth**: Validated the HMAC-SHA256 authorization signature.
+2. **Streaming Chunking**: Processed the input stream with FastCDC (or 1MB fixed buffers).
+3. **CAS Hash Calculation**: Computed the chunk ID `hex(SHA-256(data))`.
+4. **Ring Routing**: Mapped the chunk key against the 150-virtual-node consistent hash ring to find the top `N=3` replica target hosts.
+5. **Parallel Fanout**: Dispatched the chunk payload concurrently over HTTP keep-alive connections.
+6. **Quorum Ack**: Waited for `W=2` node confirmations.
+7. **WAL Commit**: Appended the object manifest to `metadata.wal` and executed synchronous disk `fsync`.
+8. **Peer Gossip**: Broadcast the new manifest to peer nodes via `/internal/manifest`.
+
+---
+
+## 2. Reading the Object Back
+
+Download the object using AWS CLI:
+
+```bash
+aws --endpoint-url=http://localhost:9000 \
+    --profile cloudweave \
+    s3 cp s3://demo-bucket/test.txt downloaded.txt
+
+cat downloaded.txt
+```
+
+Output:
+```text
+Hello from CloudWeave distributed storage!
+```
+
+---
+
+## 3. Using the `cweave` CLI
+
+The native `cweave` tool provides a streamlined syntax for everyday operations:
+
+```bash
+# Upload a file
+cweave put test.txt --key my-object
+
+# Retrieve metadata & cluster placement
+cweave stat my-object
+
+# Download the file
+cweave get my-object --out restored.txt
+
+# List all stored keys
+cweave ls
+
+# Remove an object
+cweave rm my-object
+```
+
+---
+
+## 4. Using Python `boto3`
+
+```python
+import boto3
+
+s3 = boto3.client(
+    's3',
+    endpoint_url='http://localhost:9000',
+    aws_access_key_id='master-secret-key',
+    aws_secret_access_key='admin',
+    region_name='us-east-1'
+)
+
+# Upload
+s3.put_object(
+    Bucket='demo-bucket',
+    Key='app.log',
+    Body=b'Cluster event log payload'
+)
+
+# Download
+resp = s3.get_object(Bucket='demo-bucket', Key='app.log')
+print(resp['Body'].read().decode('utf-8'))
+```
