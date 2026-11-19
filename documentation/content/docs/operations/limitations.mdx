@@ -1,0 +1,33 @@
+---
+title: Limitations
+description: Known constraints, system boundaries, and design scope of CloudWeave.
+---
+
+# Limitations & Boundaries
+
+CloudWeave is purposefully designed for local cluster prototyping, distributed systems education, and development testing. Understanding its boundaries helps you choose the right architecture for your workloads.
+
+---
+
+## Current System Boundaries
+
+### 1. In-Memory Manifest Index
+- CloudWeave maintains its active object directory in memory on each node for sub-millisecond lookups, backed by `metadata.wal` on disk.
+- **Bound**: Environments with more than 10,000,000 distinct object keys require high-memory nodes (approx. 2 GB RAM per million objects). For enterprise petabyte-scale metadata sharding, look at Ceph or MinIO.
+
+### 2. Single Cluster Scope
+- CloudWeave clusters communicate over low-latency LAN or Docker overlay networks.
+- Inter-region cross-datacenter replication (WAN replication) with high latency is not yet supported.
+
+### 3. S3 Features Not Implemented
+- **Object Lock & Legal Hold**: CloudWeave supports immutability via CAS, but S3 WORM legal hold APIs are not exposed.
+- **Lifecycle Expiration Rules**: Auto-transition to glacier/archive tiers is not supported.
+- **S3 Select**: Direct SQL querying of CSV/Parquet objects inside storage nodes is omitted.
+
+---
+
+## Best Fit Use Cases
+
+- **Developer Local S3 Environment**: Fast, zero-dependency alternative to heavy cloud emulators.
+- **Systems Engineering Education**: Exploring how quorums, FastCDC, vector clocks, and hash rings operate without reading million-line legacy C++ codebases.
+- **Embedded Edge & Homelab Storage**: Compact object storage clusters for edge devices and Raspberry Pi clusters.

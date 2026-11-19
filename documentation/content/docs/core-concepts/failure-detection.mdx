@@ -1,0 +1,55 @@
+---
+title: Failure Detection
+description: Heartbeat gossip, node health tracking, and flap-damping heuristics.
+---
+
+# Failure Detection & Flap Damping
+
+In distributed systems, distinguishing between a dead node and a slow node (e.g. suffering a temporary Go garbage collection pause or network blip) is critical to avoiding destructive thrashing.
+
+CloudWeave implements an adaptive heartbeat monitor with **flap damping** (`internal/cluster/heartbeat.go`).
+
+---
+
+## Heartbeat Ping Loop
+
+Every node runs an asynchronous heartbeat worker loop:
+- **Ping Interval**: 3 seconds (`heartbeatInterval`).
+- **Ping Endpoint**: `GET /internal/heartbeat`.
+- Each node sends a lightweight HTTP ping with a 1-second timeout to all registered peer nodes on the ring.
+
+---
+
+## Flap Damping Algorithm
+
+A naive detector marks a node dead after a single missed ping. If a node undergoes a 1.5-second GC pause, this causes false-positive node evictions, triggering massive, unnecessary re-replication of gigabytes of chunks across the network.
+
+CloudWeave prevents this using a **consecutive failure threshold**:
+
+```
+Ping 1: Timeout (Fail Count = 1) -> Node remains HEALTHY
+Ping 2: Timeout (Fail Count = 2) -> Node remains HEALTHY
+Ping 3: Timeout (Fail Count = 3) -> Node marked UNSTABLE
+Ping 4: Timeout (Fail Count = 4) -> Node declared DEAD (Eviction Triggered)
+```
+
+- **Threshold**: **4 consecutive failed heartbeats** (approx. 12 seconds).
+- **Reset**: Any single successful heartbeat immediately resets the failure counter to 0.
+
+---
+
+## Cluster State Transition
+
+```
+┌───────────┐      4 missed pings       ┌────────┐
+│  HEALTHY  │ ────────────────────────► │  DEAD  │
+└───────────┘                           └────────┘
+      ▲                                      │
+      │           Single success             │
+      └──────────────────────────────────────┘
+```
+
+When a node transitions to the `DEAD` state:
+1. It is removed from the active consistent hash ring routing table.
+2. The self-healing coordinator receives a dead-node event notification.
+3. The cluster begins background replica repair to restore quorum counts.

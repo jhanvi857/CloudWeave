@@ -1,43 +1,39 @@
-import type { Metadata } from 'next'
-import { Inter, IBM_Plex_Mono, Fraunces } from 'next/font/google'
-import './globals.css'
+import { RootProvider } from 'fumadocs-ui/provider/next';
+import localFont from 'next/font/local';
+import './global.css';
+import './theme.css';
+import type { Metadata } from 'next';
 
-const inter = Inter({
-  subsets: ['latin'],
+const geistSans = localFont({
+  src: './fonts/geist-sans.woff2',
   variable: '--font-sans',
   display: 'swap',
-})
+  weight: '400 500 600',
+});
 
-const ibmPlexMono = IBM_Plex_Mono({
-  weight: ['400', '500', '600', '700'],
-  subsets: ['latin'],
+const geistMono = localFont({
+  src: './fonts/geist-mono.woff2',
   variable: '--font-mono',
   display: 'swap',
-})
-
-const fraunces = Fraunces({
-  subsets: ['latin'],
-  variable: '--font-serif',
-  display: 'swap',
-})
+  weight: '400 500 600',
+});
 
 export const metadata: Metadata = {
-  title: 'CloudWeave | Deterministic Distributed Storage in Go',
-  description: 'A distributed S3-compatible object store built like a bank vault. FastCDC chunking, SHA-256 CAS deduplication, consistent hash ring, N/W/R quorum, and self-healing repair in Go.',
-}
+  metadataBase: new URL('https://cloudweave.dev'),
+  title: {
+    template: '%s | CloudWeave Documentation',
+    default: 'CloudWeave | Distributed S3-Compatible Object Store in Go',
+  },
+  description: 'Technical documentation for CloudWeave, a high-performance distributed object storage engine written in Go.',
+};
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
+export default function Layout({ children }: LayoutProps<'/'>) {
   return (
-    <html lang="en" className={`${inter.variable} ${ibmPlexMono.variable} ${fraunces.variable} dark`} suppressHydrationWarning>
-      <body className="min-h-screen bg-[#000000] text-[#EDE8DF] font-sans antialiased selection:bg-[#7A1F2B]/40 selection:text-[#EDE8DF]" suppressHydrationWarning>
-        {children}
+    <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} dark`}>
+      <head />
+      <body className="flex flex-col min-h-screen bg-bg text-muted font-sans antialiased selection:bg-brand-soft selection:text-brand">
+        <RootProvider>{children}</RootProvider>
       </body>
     </html>
-  )
+  );
 }
-
-

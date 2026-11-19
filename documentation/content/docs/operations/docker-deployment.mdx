@@ -1,0 +1,146 @@
+---
+title: Docker Deployment
+description: Production-grade multi-container deployment using Docker Compose and container topologies.
+---
+
+# Docker Deployment
+
+Deploying CloudWeave with Docker Compose isolates nodes into distinct network containers with separate persistent volumes, closely mirroring physical server infrastructure.
+
+---
+
+## Complete `docker-compose.yml` Specification
+
+```yaml
+version: '3.8'
+
+networks:
+  cloudweave-net:
+    driver: bridge
+
+volumes:
+  cw_node1_data:
+  cw_node2_data:
+  cw_node3_data:
+  cw_node4_data:
+  cw_node5_data:
+
+services:
+  node1:
+    image: ghcr.io/jhanvi857/cloudweave:latest
+    container_name: cloudweave-node1
+    networks:
+      - cloudweave-net
+    ports:
+      - "9000:9000"
+    environment:
+      - PORT=9000
+      - DATA_DIR=/data
+      - PEERS=http://node2:9001,http://node3:9002,http://node4:9003,http://node5:9004
+      - QUORUM_N=3
+      - QUORUM_W=2
+      - QUORUM_R=2
+      - CLOUDWEAVE_API_KEYS=master-secret-key=admin
+    volumes:
+      - cw_node1_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+
+  node2:
+    image: ghcr.io/jhanvi857/cloudweave:latest
+    container_name: cloudweave-node2
+    networks:
+      - cloudweave-net
+    ports:
+      - "9001:9001"
+    environment:
+      - PORT=9001
+      - DATA_DIR=/data
+      - PEERS=http://node1:9000,http://node3:9002,http://node4:9003,http://node5:9004
+      - QUORUM_N=3
+      - QUORUM_W=2
+      - QUORUM_R=2
+      - CLOUDWEAVE_API_KEYS=master-secret-key=admin
+    volumes:
+      - cw_node2_data:/data
+    restart: unless-stopped
+
+  node3:
+    image: ghcr.io/jhanvi857/cloudweave:latest
+    container_name: cloudweave-node3
+    networks:
+      - cloudweave-net
+    ports:
+      - "9002:9002"
+    environment:
+      - PORT=9002
+      - DATA_DIR=/data
+      - PEERS=http://node1:9000,http://node2:9001,http://node4:9003,http://node5:9004
+      - QUORUM_N=3
+      - QUORUM_W=2
+      - QUORUM_R=2
+      - CLOUDWEAVE_API_KEYS=master-secret-key=admin
+    volumes:
+      - cw_node3_data:/data
+    restart: unless-stopped
+
+  node4:
+    image: ghcr.io/jhanvi857/cloudweave:latest
+    container_name: cloudweave-node4
+    networks:
+      - cloudweave-net
+    ports:
+      - "9003:9003"
+    environment:
+      - PORT=9003
+      - DATA_DIR=/data
+      - PEERS=http://node1:9000,http://node2:9001,http://node3:9002,http://node5:9004
+      - QUORUM_N=3
+      - QUORUM_W=2
+      - QUORUM_R=2
+      - CLOUDWEAVE_API_KEYS=master-secret-key=admin
+    volumes:
+      - cw_node4_data:/data
+    restart: unless-stopped
+
+  node5:
+    image: ghcr.io/jhanvi857/cloudweave:latest
+    container_name: cloudweave-node5
+    networks:
+      - cloudweave-net
+    ports:
+      - "9004:9004"
+    environment:
+      - PORT=9004
+      - DATA_DIR=/data
+      - PEERS=http://node1:9000,http://node2:9001,http://node3:9002,http://node4:9003
+      - QUORUM_N=3
+      - QUORUM_W=2
+      - QUORUM_R=2
+      - CLOUDWEAVE_API_KEYS=master-secret-key=admin
+    volumes:
+      - cw_node5_data:/data
+    restart: unless-stopped
+```
+
+---
+
+## Health Checks & Maintenance
+
+```bash
+# Check all container states
+docker compose ps
+
+# View real-time resource utilization
+docker stats
+
+# Simulate an abrupt node kill
+docker compose kill node2
+
+# Observe surviving nodes take over and heal replicas
+docker compose logs -f node1
+```

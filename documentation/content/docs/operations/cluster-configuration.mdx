@@ -1,0 +1,45 @@
+---
+title: Cluster Configuration
+description: Cluster sizing, quorum balancing, and mutual TLS (mTLS) security hardening.
+---
+
+# Cluster Configuration & Sizing
+
+Designing a distributed storage topology requires balancing fault tolerance, network latency, and physical storage costs.
+
+---
+
+## Topology Recommendations
+
+| Cluster Nodes | Recommended `N` | Write Quorum (`W`) | Read Quorum (`R`) | Max Node Failures | Storage Overhead |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **3 Nodes** | 3 | 2 | 2 | 1 Node | 300% |
+| **5 Nodes** | 3 | 2 | 2 | 2 Nodes | 300% |
+| **7 Nodes** | 5 | 3 | 3 | 2 Nodes | 500% |
+| **6 Nodes (Erasure RS 4+2)** | 6 (4+2) | 4 | 4 | 2 Nodes | 150% |
+
+---
+
+## Mutual TLS (mTLS) Hardening
+
+For production environments operating over untrusted networks, CloudWeave supports strict **mutual TLS (mTLS)** for all node-to-node transport (`internal/transport`):
+
+```bash
+# Generate CA and Node Certificates
+openssl req -x509 -newkey rsa:4096 -keyout ca.key -out ca.crt -days 365 -nodes
+```
+
+### Enabling mTLS on Nodes
+Configure the environment variables:
+
+```bash
+export MTLS_ENABLED=true
+export MTLS_CA_CERT=/certs/ca.crt
+export MTLS_SERVER_CERT=/certs/node1.crt
+export MTLS_SERVER_KEY=/certs/node1.key
+```
+
+When enabled:
+1. Every node validates the client certificate of incoming peer connections against the shared CA.
+2. Unauthenticated connections are dropped immediately at the TLS handshake level before reaching HTTP handlers.
+3. Persistent connection pooling amortizes the TLS handshake overhead across thousands of chunk writes.

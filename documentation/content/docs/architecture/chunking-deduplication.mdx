@@ -1,0 +1,69 @@
+---
+title: Chunking & Deduplication
+description: FastCDC content-defined chunking, rolling Gear hash, and SHA-256 Content-Addressable Storage.
+---
+
+# Chunking & Deduplication
+
+CloudWeave implements streaming **Content-Addressable Storage (CAS)** with optional **FastCDC Content-Defined Chunking** to eliminate storage amplification and redundant disk I/O.
+
+---
+
+## The Boundary-Shift Problem
+
+Traditional fixed-size chunking splits files every `X` bytes (e.g. 1 MB). If a user inserts 1 byte at the beginning of a 100 MB file:
+- Every subsequent chunk boundary shifts by 1 byte.
+- All 100 chunk hashes change completely.
+- Fixed chunking produces **0% deduplication**, forcing the cluster to re-replicate all 100 chunks across the network.
+
+---
+
+## FastCDC: Content-Defined Chunking
+
+To solve this, CloudWeave implements **FastCDC** (`internal/chunk/fastcdc.go`), a high-performance content-defined chunking algorithm based on the Gear rolling hash.
+
+Instead of fixed byte offsets, FastCDC inspects the data stream byte-by-byte and declares a chunk boundary when the rolling hash satisfies a bitmask pattern:
+
+```text
+GearHash(x) & Mask == 0
+```
+
+FastCDC divides chunk discovery into two stages:
+1. **Normalized Sub-minimum Region**: Uses a looser mask to prevent abnormally small chunks (default min: 64 KB).
+2. **Normalized Super-maximum Region**: Uses a tighter mask to prevent giant chunks (default max: 1 MB, target average: 256 KB).
+
+### Deduplication Impact
+When a byte is inserted at the beginning of a file:
+- Only the very first chunk boundary moves.
+- The remaining 99 chunks retain identical content and identical SHA-256 hashes!
+- Deduplication ratio exceeds **98%+**, saving network bandwidth and storage volume.
+
+---
+
+## Content-Addressable Storage (CAS)
+
+Every chunk in CloudWeave is strictly identified by its cryptographic SHA-256 digest:
+
+```text
+ChunkID = hex(SHA-256(data))
+```
+
+Before writing a chunk to disk, each storage node checks its local index:
+```go
+if store.HasChunk(chunkID) {
+    // Skip disk write entirely! Return immediate 200 OK
+    return nil
+}
+store.Put(chunkID, data)
+```
+
+### Self-Verifying Data Integrity
+Because the filename *is* the cryptographic hash of its payload, silent disk corruption, bit rot, or storage controller failure is detected instantaneously during read:
+
+```go
+calculated := sha256.Sum256(data)
+if hex.EncodeToString(calculated[:]) != chunkID {
+    return nil, ErrChunkCorrupt
+}
+```
+If corruption is detected, the coordinator immediately falls back to another surviving replica on the ring and marks the corrupt replica for background repair.

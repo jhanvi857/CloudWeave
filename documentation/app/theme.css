@@ -1,0 +1,101 @@
+@theme {
+  --color-brand: var(--brand);
+  --color-brand-fg: var(--brand-fg);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-border: var(--brand-border);
+  --color-brand-glow: var(--brand-glow);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-heading: var(--heading);
+  --color-text-heading: var(--heading);
+  --color-muted: var(--text-muted);
+  --color-text-muted: var(--text-muted);
+  --color-subtle: var(--text-subtle);
+  --color-text-subtle: var(--text-subtle);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+
+  --color-fd-background: var(--bg);
+  --color-fd-foreground: var(--text);
+  --color-fd-card: var(--surface);
+  --color-fd-card-foreground: var(--text);
+  --color-fd-muted: var(--surface-2);
+  --color-fd-muted-foreground: var(--text-muted);
+  --color-fd-border: var(--border);
+  --color-fd-primary: var(--brand);
+  --color-fd-primary-foreground: var(--brand-fg);
+  --color-fd-accent: var(--brand-soft);
+  --color-fd-accent-foreground: var(--brand);
+  --color-fd-ring: var(--brand);
+  --color-fd-popover: var(--surface);
+  --color-fd-popover-foreground: var(--text);
+  --color-fd-secondary: var(--surface-2);
+  --color-fd-secondary-foreground: var(--text);
+}
+
+:root {
+  --brand: #FFB000;            /* finalized accent: Amber */
+  --brand-fg: #0A0A0A;         /* text on amber */
+  --bg: #0A0A0A;
+  --surface: #111111;
+  --surface-2: #171717;
+  --border: #262626;
+  --text: #EDEDED;
+  --heading: #FFFFFF;
+  --text-muted: #A1A1A1;
+  --text-subtle: #737373;
+  --danger: #FF4D4D;
+  --success: #3DD68C;
+
+  /* Dev Theme Presets */
+  --preset-red: #E5333A;
+  --preset-lime: #B6FF3C;
+  --preset-amber: #FFB000;
+  --preset-blue: #3B82F6;
+  --preset-violet: #8B5CF6;
+
+  /* derived from --brand, never hardcode these */
+  --brand-soft: color-mix(in srgb, var(--brand) 12%, transparent);
+  --brand-border: color-mix(in srgb, var(--brand) 40%, transparent);
+  --brand-glow: color-mix(in srgb, var(--brand) 25%, transparent);
+
+  /* Fumadocs variables */
+  --color-fd-background: var(--bg);
+  --color-fd-foreground: var(--text);
+  --color-fd-card: var(--surface);
+  --color-fd-card-foreground: var(--text);
+  --color-fd-muted: var(--surface-2);
+  --color-fd-muted-foreground: var(--text-muted);
+  --color-fd-border: var(--border);
+  --color-fd-primary: var(--brand);
+  --color-fd-primary-foreground: var(--brand-fg);
+  --color-fd-accent: var(--brand-soft);
+  --color-fd-accent-foreground: var(--brand);
+  --color-fd-ring: var(--brand);
+  --color-fd-popover: var(--surface);
+  --color-fd-popover-foreground: var(--text);
+  --color-fd-secondary: var(--surface-2);
+  --color-fd-secondary-foreground: var(--text);
+}
+
+.dark {
+  --color-fd-background: var(--bg);
+  --color-fd-foreground: var(--text);
+  --color-fd-card: var(--surface);
+  --color-fd-card-foreground: var(--text);
+  --color-fd-muted: var(--surface-2);
+  --color-fd-muted-foreground: var(--text-muted);
+  --color-fd-border: var(--border);
+  --color-fd-primary: var(--brand);
+  --color-fd-primary-foreground: var(--brand-fg);
+  --color-fd-accent: var(--brand-soft);
+  --color-fd-accent-foreground: var(--brand);
+  --color-fd-ring: var(--brand);
+  --color-fd-popover: var(--surface);
+  --color-fd-popover-foreground: var(--text);
+  --color-fd-secondary: var(--surface-2);
+  --color-fd-secondary-foreground: var(--text);
+}

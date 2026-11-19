@@ -1,0 +1,94 @@
+---
+title: CLI Reference
+description: Complete command-line syntax and usage guide for the cweave CLI tool.
+---
+
+# CLI Reference (`cweave`)
+
+`cweave` is the official command-line utility for managing CloudWeave clusters, uploading objects, and inspecting internal metadata.
+
+---
+
+## Global Options
+
+```text
+cweave [command] [flags]
+```
+
+- `--endpoint string`: Cluster node endpoint URL (default: `http://localhost:9000`, env: `CLOUDWEAVE_ENDPOINT`).
+- `--api-key string`: Cluster authentication key (env: `CLOUDWEAVE_API_KEY`).
+- `--json`: Output results in machine-readable JSON format.
+- `--verbose, -v`: Print debug headers and chunk distribution traces.
+
+---
+
+## Commands
+
+### `cweave put`
+Uploads a local file or standard input to CloudWeave.
+
+```bash
+cweave put <filepath> --key <object-key> [--bucket <bucket>]
+```
+
+Example:
+```bash
+cweave put backup.tar.gz --key archives/2026-11-backup.tar.gz
+```
+
+### `cweave get`
+Downloads an object and writes it to a file or standard output.
+
+```bash
+cweave get <object-key> [--out <dest-path>] [--version <version-id>]
+```
+
+Example:
+```bash
+cweave get archives/2026-11-backup.tar.gz --out restored.tar.gz
+```
+
+### `cweave ls`
+Lists objects within a bucket with optional prefix filtering.
+
+```bash
+cweave ls [--prefix <prefix>] [--limit <int>]
+```
+
+Example:
+```bash
+cweave ls --prefix archives/
+```
+
+### `cweave stat`
+Displays detailed chunk placement, vector clock history, and replica node addresses for a specific object.
+
+```bash
+cweave stat <object-key>
+```
+
+Example output:
+```text
+Object:       archives/2026-11-backup.tar.gz
+Size:         24,582,912 bytes
+Chunks:       24
+Storage Mode: replication (N=3, W=2, R=2)
+Vector Clock: {node1:4, node3:1}
+Chunk Placements:
+  [0] a1b2c3d4... -> node1:9000, node2:9001, node5:9004
+  [1] e5f6a7b8... -> node3:9002, node4:9003, node1:9000
+```
+
+### `cweave rm`
+Tombstones or deletes an object.
+
+```bash
+cweave rm <object-key>
+```
+
+### `cweave cluster`
+Queries the cluster for active node health and ring statistics.
+
+```bash
+cweave cluster
+```

@@ -1,0 +1,67 @@
+---
+title: Configuration
+description: Complete reference for CloudWeave CLI flags, environment variables, and tuning parameters.
+---
+
+# Configuration Reference
+
+CloudWeave nodes can be configured either via command-line flags on the binary or via environment variables (recommended for Docker and Kubernetes).
+
+---
+
+## Environment Variables
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `PORT` | Integer | `9000` | Port for client S3 requests and node-to-node transport |
+| `DATA_DIR` | String | `./data` | Filepath where raw chunk blocks and WAL files are stored |
+| `PEERS` | String | `""` | Comma-separated list of peer URLs (e.g. `http://node2:9001,http://node3:9002`) |
+| `QUORUM_N` | Integer | `3` | Total number of replicas per chunk across the cluster |
+| `QUORUM_W` | Integer | `2` | Minimum write acknowledgments required for write success |
+| `QUORUM_R` | Integer | `2` | Minimum read responses queried in parallel on read |
+| `STORAGE_ENGINE` | String | `replication` | Storage engine: `replication` or `erasure` |
+| `CLOUDWEAVE_API_KEYS` | String | `""` | Comma-separated `key=role` pairs (e.g. `secret123=admin,readkey=reader`) |
+| `MTLS_ENABLED` | Boolean | `false` | Enable mutual TLS for all inter-node communication |
+| `MTLS_CA_CERT` | String | `""` | Filepath to trusted Certificate Authority certificate |
+| `MTLS_SERVER_CERT`| String | `""` | Filepath to node's TLS server certificate |
+| `MTLS_SERVER_KEY` | String | `""` | Filepath to node's TLS private key |
+| `LRU_CACHE_MB` | Integer | `256` | Maximum in-memory LRU read cache size in megabytes |
+
+---
+
+## CLI Flags (`node`)
+
+```bash
+./node [flags]
+```
+
+```text
+  -port int
+        HTTP listen port (default 9000)
+  -data string
+        Directory path to store chunks and WAL (default "./data")
+  -peers string
+        Comma-separated URLs of peer nodes
+  -quorum-n int
+        Total replica count (default 3)
+  -quorum-w int
+        Write quorum count (default 2)
+  -quorum-r int
+        Read quorum count (default 2)
+  -storage-engine string
+        Storage engine: replication or erasure (default "replication")
+  -api-keys string
+        API key authorization map (e.g. "master-secret-key=admin")
+  -mtls
+        Enable mutual TLS for internal cluster traffic (default false)
+  -lru-cache int
+        Read cache size in MB (default 256)
+```
+
+---
+
+## Production Recommendations
+
+- **Storage Volumes**: For high throughput, mount `DATA_DIR` on dedicated NVMe SSD storage with `noatime` mount option.
+- **Quorum Settings**: Never configure `W + R <= N` in production environments unless eventual consistency is explicitly desired.
+- **Memory Allocation**: Minimum 256 MB RAM per node container. Under heavy concurrent load (100+ parallel streams), allocate 1 GB RAM per node.

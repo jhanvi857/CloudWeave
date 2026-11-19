@@ -1,0 +1,35 @@
+---
+title: Anti-Entropy
+description: Background reconciliation, network partition recovery, and vector clock synchronization.
+---
+
+# Anti-Entropy & Background Sync
+
+Even with quorum writes and gossip broadcast, network partitions, temporary network packet loss, or node restarts can cause metadata state to drift between cluster members.
+
+CloudWeave runs an **Anti-Entropy Reconciler** (`internal/cluster/anti_entropy.go`) to continuously heal state divergence in the background.
+
+---
+
+## Reconciliation Loop
+
+Every node executes an anti-entropy tick every **30 seconds**:
+
+1. **Peer Polling**: The node selects a peer at random (or loops through all registered cluster peers) and requests its current manifest list via `GET /internal/manifest`.
+2. **Clock Comparison**: For every object returned by the peer, the local node compares the peer's vector clock against its local clock:
+   - **Local dominates**: The local node has newer data; it gossips the newer manifest back to the peer.
+   - **Peer dominates**: The peer has newer data; the local node adopts the peer's manifest and commits it to its local WAL.
+   - **Identical**: No action required.
+   - **Concurrent conflict**: Both versions are retained as sibling branches for resolution.
+
+---
+
+## Catching Up Restarted Nodes
+
+When a node has been powered off for hours and boots back up:
+1. It reads its local `metadata.wal` to restore its historical memory.
+2. The initial anti-entropy sweep contacts active peers immediately.
+3. It downloads all manifests created while it was offline.
+4. The replica repair engine automatically pulls any missing chunk payloads needed to satisfy the hash ring.
+
+Within seconds of booting, the restarted node is fully synchronized with the rest of the cluster.

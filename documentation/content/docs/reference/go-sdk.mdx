@@ -1,0 +1,86 @@
+---
+title: Go SDK
+description: Native Go client library for CloudWeave with built-in connection pooling and client-side encryption.
+---
+
+# Go Client SDK
+
+For Go applications, CloudWeave includes a high-performance native client package (`client/client.go`) featuring automatic connection pooling, retries, and optional client-side encryption.
+
+---
+
+## Installation
+
+```bash
+go get github.com/jhanvi857/cloudweave/client
+```
+
+---
+
+## Quick Example
+
+```go
+package main
+
+import (
+    "bytes"
+    "context"
+    "fmt"
+    "io"
+    "log"
+
+    "github.com/jhanvi857/cloudweave/client"
+)
+
+func main() {
+    // 1. Initialize client with connection pooling
+    c, err := client.New(client.Config{
+        Endpoint: "http://localhost:9000",
+        APIKey:   "master-secret-key",
+        Timeout:  30, // seconds
+    })
+    if err != nil {
+        log.Fatalf("failed to init client: %v", err)
+    }
+
+    ctx := context.Background()
+
+    // 2. Put an object
+    data := []byte("Distributed storage in Go")
+    err = c.Put(ctx, "my-bucket", "notes.txt", bytes.NewReader(data), int64(len(data)))
+    if err != nil {
+        log.Fatalf("put failed: %v", err)
+    }
+    fmt.Println("Object uploaded successfully!")
+
+    // 3. Get an object
+    reader, err := c.Get(ctx, "my-bucket", "notes.txt")
+    if err != nil {
+        log.Fatalf("get failed: %v", err)
+    }
+    defer reader.Close()
+
+    body, _ := io.ReadAll(reader)
+    fmt.Printf("Received: %s\n", string(body))
+}
+```
+
+---
+
+## Client-Side Encryption (Zero-Knowledge)
+
+The Go SDK supports client-side AES-256-GCM encryption before data leaves your application process:
+
+```go
+c, err := client.New(client.Config{
+    Endpoint:          "http://localhost:9000",
+    APIKey:            "master-secret-key",
+    EncryptionKey:     []byte("32-byte-passphrase-derived-secret"),
+})
+```
+
+When `EncryptionKey` is provided:
+- Payloads are encrypted in memory before transmission.
+- Storage nodes only see and store ciphertext chunks.
+- Storage node operators or compromised disks cannot read your data.
+- The SDK automatically decrypts payloads on `Get()`.

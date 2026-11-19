@@ -1,0 +1,10 @@
+{
+  "title": "CloudWeave Documentation",
+  "pages": [
+    "getting-started",
+    "architecture",
+    "core-concepts",
+    "reference",
+    "operations"
+  ]
+}

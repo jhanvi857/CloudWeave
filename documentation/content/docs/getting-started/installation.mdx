@@ -1,0 +1,93 @@
+---
+title: Installation
+description: Install CloudWeave using prebuilt Docker containers, Go install, or compiling from source.
+---
+
+# Installing CloudWeave
+
+CloudWeave ships as a standalone binary containing both the storage daemon and client tooling. Choose your preferred installation method below.
+
+---
+
+## 1. Prebuilt Docker Image (Recommended)
+
+Multi-architecture images are published to the GitHub Container Registry (GHCR) for `linux/amd64` and `linux/arm64` (Apple Silicon & AWS Graviton):
+
+```bash
+docker pull ghcr.io/jhanvi857/cloudweave:latest
+```
+
+Every published container image is scanned with Trivy for vulnerabilities and passes continuous integration smoke tests prior to release.
+
+---
+
+## 2. Install CLI via Go
+
+If you have Go 1.22+ installed, install the `cweave` command-line interface globally:
+
+```bash
+go install github.com/jhanvi857/cloudweave/cmd/cweave@latest
+```
+
+Verify the installation:
+
+```bash
+cweave --version
+```
+
+---
+
+## 3. Build from Source
+
+CloudWeave has zero external C/C++ or system library dependencies and builds cleanly using standard Go toolchains.
+
+```bash
+# Clone the repository
+git clone https://github.com/jhanvi857/CloudWeave.git
+cd CloudWeave
+
+# Build the node server daemon
+go build -o node ./cmd/node
+
+# Build the cweave CLI tool
+go build -o cweave ./cmd/cweave
+```
+
+Verify the binary output:
+
+```bash
+./node -help
+```
+
+Output:
+```text
+Usage of node:
+  -port int
+        HTTP listen port (default 9000)
+  -data string
+        Local storage directory (default "./data")
+  -peers string
+        Comma-separated list of peer URLs
+  -quorum-n int
+        Total replica count (default 3)
+  -quorum-w int
+        Write quorum count (default 2)
+  -quorum-r int
+        Read quorum count (default 2)
+  -storage-engine string
+        Storage engine: replication or erasure (default "replication")
+  -api-keys string
+        Comma-separated key=role pairs (e.g. "secret123=admin")
+```
+
+---
+
+## System Requirements
+
+| Specification | Minimum | Recommended (5-Node Local Cluster) |
+| :--- | :--- | :--- |
+| **Operating System** | Linux, macOS, Windows | Linux or macOS |
+| **CPU Architecture** | x86_64 or ARM64 | 4+ Cores |
+| **Memory** | 128 MB RAM per node | 1 GB total |
+| **Disk Space** | 100 MB free storage | 5 GB SSD storage |
+| **Runtime** | None (Single static binary) | Docker & Docker Compose |

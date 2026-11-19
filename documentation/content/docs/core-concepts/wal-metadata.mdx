@@ -1,0 +1,59 @@
+---
+title: WAL & Metadata Durability
+description: Append-only Write-Ahead Log (WAL), CRC32 integrity validation, synchronous fsync, and crash recovery.
+---
+
+# WAL & Metadata Durability
+
+To ensure zero metadata loss across unexpected power outages, host crashes, or container kills (`kill -9`), CloudWeave persists all manifest state to an append-only **Write-Ahead Log (WAL)** (`internal/metadata/wal.go`).
+
+---
+
+## Log Record Format
+
+Every WAL entry is written in a binary framed format with strict checksumming:
+
+```
+┌──────────────┬──────────────┬────────────────────────────┬──────────────┐
+│  Record Len  │ CRC32 Cast.  │      Manifest Payload      │  Magic Byte  │
+│   (4 bytes)  │  (4 bytes)   │        (JSON bytes)        │   (1 byte)   │
+└──────────────┴──────────────┴────────────────────────────┴──────────────┘
+```
+
+1. **Length Prefix (4 bytes)**: Big-endian integer specifying the payload length.
+2. **CRC32C Checksum (4 bytes)**: Castagnoli polynomial checksum computed over the payload bytes.
+3. **Payload**: Serialized JSON manifest containing object key, chunk IDs, replica addresses, and vector clock state.
+4. **Magic Trailing Byte (1 byte)**: Acts as an end-of-frame sentinel.
+
+---
+
+## Crash Recovery & Torn-Tail Truncation
+
+If a power failure or process kill occurs in the middle of writing a record to disk:
+1. During boot, CloudWeave opens `metadata.wal` and replays records sequentially from the beginning.
+2. For each record, it verifies the length, magic byte, and validates `CRC32(payload) == header.CRC32`.
+3. If an incomplete or corrupted record is detected at the tail (a "torn write"), the recovery engine:
+   - Detects the corruption boundary.
+   - Logs a warning detailing the byte offset.
+   - Truncates the file back to the last known healthy record using `os.Truncate()`.
+4. The node safely starts up with a completely intact, mathematically consistent metadata state.
+
+---
+
+## Synchronous Flush (`fsync`)
+
+CloudWeave's durability invariant requires a synchronous flush before returning success to a write request:
+
+```go
+// Append record to file
+if _, err := wal.file.Write(encodedRecord); err != nil {
+    return err
+}
+
+// Force OS kernel disk buffer flush to physical disk
+if err := wal.file.Sync(); err != nil {
+    return err
+}
+```
+
+This guarantees that once an acknowledgment is returned, the record resides safely on non-volatile media.

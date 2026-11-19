@@ -1,0 +1,58 @@
+---
+title: Vector Clocks
+description: Causal version tracking, decentralized conflict detection, and object versioning.
+---
+
+# Vector Clocks & Causal Ordering
+
+In a decentralized storage cluster without a central master, physical wall-clock timestamps (like NTP or `time.Now()`) cannot reliably determine event order due to clock drift, leap seconds, and network jitter.
+
+CloudWeave tracks causality using **Lamport Vector Clocks** (`internal/metadata/vector_clock.go`).
+
+---
+
+## Vector Clock Structure
+
+A vector clock is represented as an array of logical counters, where each entry corresponds to a known node in the cluster:
+
+```text
+VC = { node1: c1, node2: c2, ..., nodeN: cN }
+```
+
+When a node coordinates a write to an object:
+1. It increments its own logical counter: `VC[self] = VC[self] + 1`.
+2. It stamps the new manifest with the updated vector clock.
+3. It broadcasts the stamped manifest to peer nodes.
+
+---
+
+## Comparison Rules
+
+When comparing two versions of an object, manifest `A` with clock `V_A` and manifest `B` with clock `V_B`:
+
+### 1. Dominates (`V_A > V_B`)
+Manifest `A` strictly succeeds manifest `B` if:
+- For every node `k`, `V_A[k] >= V_B[k]`, and
+- For at least one node `k`, `V_A[k] > V_B[k]`.
+
+*Action*: Version `A` is newer; version `B` is superseded.
+
+### 2. Equal (`V_A == V_B`)
+- For every node `k`, `V_A[k] == V_B[k]`.
+
+*Action*: Manifests describe the exact same causal event.
+
+### 3. Concurrent Conflict (`V_A || V_B`)
+- There exists some node `i` where `V_A[i] > V_B[i]`, and
+- There exists some node `j` where `V_B[j] > V_A[j]`.
+
+*Action*: Both versions were written concurrently during a temporary network partition. CloudWeave preserves both version records (sibling branches) until explicitly resolved or tombstoned by the client application.
+
+---
+
+## S3 Object Versioning Integration
+
+CloudWeave maps vector clock increments directly into S3 version IDs. When overwriting an existing key:
+- The previous manifest remains stored in history.
+- The new write receives an updated version ID derived from the vector clock hash.
+- Calling `GET /bucket/key?versionId=...` retrieves historical revisions on demand.

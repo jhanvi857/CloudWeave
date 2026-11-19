@@ -1,0 +1,10 @@
+{
+  "title": "Architecture",
+  "pages": [
+    "index",
+    "consistent-hashing",
+    "chunking-deduplication",
+    "replication-quorums",
+    "erasure-coding"
+  ]
+}

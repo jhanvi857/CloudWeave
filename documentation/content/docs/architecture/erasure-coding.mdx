@@ -1,0 +1,63 @@
+---
+title: Erasure Coding
+description: Reed-Solomon Cauchy matrix erasure coding (K=4, M=2), parity shards, and storage efficiency.
+---
+
+# Reed-Solomon Erasure Coding
+
+In addition to multi-replica storage, CloudWeave includes an optional **Reed-Solomon Erasure Coding** storage engine (`internal/erasure`).
+
+---
+
+## Why Erasure Coding?
+
+While `N=3` replication provides high fault tolerance, it requires **300% storage overhead** (storing 1 GB of data consumes 3 GB of disk across the cluster).
+
+Erasure coding mathematically divides data into `K` data shards and calculates `M` parity shards:
+
+```text
+Total Shards = K + M
+```
+
+Any `K` shards out of the total `K+M` shards are sufficient to reconstruct the original data byte-for-byte!
+
+| Storage Strategy | Data Shards (`K`) | Parity Shards (`M`) | Storage Overhead | Tolerable Node Losses |
+| :--- | :--- | :--- | :--- | :--- |
+| **`N=3` Replication** | 1 | 2 copies | **300%** | 2 Nodes |
+| **Reed-Solomon (4+2)** | 4 | 2 parity | **150%** | 2 Nodes |
+
+Reed-Solomon `4+2` provides the exact same failure tolerance (tolerating 2 concurrent dead nodes) while cutting raw disk consumption by **50%**.
+
+---
+
+## Cauchy Matrix Implementation
+
+CloudWeave implements Galois Field `GF(2^8)` arithmetic using a Cauchy distribution matrix:
+1. An incoming chunk is split into `K=4` equal data blocks.
+2. The Cauchy generator matrix computes `M=2` parity blocks.
+3. The 6 resulting shards are distributed across 6 distinct nodes via the hash ring.
+
+---
+
+## Reconstruction on Failure
+
+When reading an erasure-coded object:
+- The coordinator requests shards in parallel.
+- As soon as the first `K=4` healthy shards arrive, matrix inversion is executed.
+- If 1 or 2 nodes are offline or return corrupted blocks, the parity shards reconstruct the missing data shards with zero downtime.
+
+---
+
+## Enabling Erasure Coding
+
+To start CloudWeave nodes with the erasure coding engine:
+
+```bash
+./node -port 9000 -storage-engine erasure -peers "http://localhost:9001,http://localhost:9002,http://localhost:9003,http://localhost:9004,http://localhost:9005"
+```
+
+Or via Docker Compose:
+```yaml
+environment:
+  - STORAGE_ENGINE=erasure
+```
